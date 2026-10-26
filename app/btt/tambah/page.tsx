@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -6,7 +5,6 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
 const formAwal = {
-  nomor_btt: "",
   tanggal: "",
   isi_kiriman: "",
   jumlah_colli: "",
@@ -37,18 +35,21 @@ export default function TambahBttPage() {
     e.preventDefault();
     setLoading(true);
 
-    const { error } = await supabase.from("btt").insert({
-      nomor_btt: form.nomor_btt.trim(),
-      tanggal: form.tanggal,
-      isi_kiriman: form.isi_kiriman.trim(),
-      jumlah_colli: Number(form.jumlah_colli),
-      berat: form.berat === "" ? null : Number(form.berat),
-      pembayaran: form.pembayaran || null,
-      penerima: form.penerima.trim(),
-      pengirim: form.pengirim.trim(),
-      biaya: form.biaya === "" ? null : Number(form.biaya),
-      petugas: form.petugas.trim() || null,
-    });
+    const { data, error } = await supabase
+      .from("btt")
+      .insert({
+        tanggal: form.tanggal,
+        isi_kiriman: form.isi_kiriman.trim(),
+        jumlah_colli: Number(form.jumlah_colli),
+        berat: form.berat === "" ? null : Number(form.berat),
+        pembayaran: form.pembayaran || null,
+        penerima: form.penerima.trim(),
+        pengirim: form.pengirim.trim(),
+        biaya: form.biaya === "" ? null : Number(form.biaya),
+        petugas: form.petugas.trim() || null,
+      })
+      .select("nomor_btt")
+      .single();
 
     setLoading(false);
 
@@ -57,7 +58,8 @@ export default function TambahBttPage() {
       return;
     }
 
-    alert("BTT berhasil disimpan!");
+    alert(`BTT berhasil disimpan!\nNomor BTT: ${data.nomor_btt}`);
+
     setForm({ ...formAwal });
   }
 
@@ -74,6 +76,7 @@ export default function TambahBttPage() {
           <h1 className="text-xl font-bold">
             PT Pandawa Jaya Transindo
           </h1>
+
           <p className="mt-1 text-sm text-blue-100">
             Sistem Administrasi Pengiriman Barang
           </p>
@@ -84,6 +87,7 @@ export default function TambahBttPage() {
             <h2 className="text-2xl font-bold">
               Input Bukti Tanda Terima
             </h2>
+
             <p className="mt-2 text-sm text-gray-500">
               Isi data pengiriman sesuai dengan dokumen BTT.
             </p>
@@ -93,20 +97,27 @@ export default function TambahBttPage() {
 
             <div className="grid gap-5 sm:grid-cols-2">
               <div>
-                <label className={labelStyle}>Nomor BTT *</label>
+                <label className={labelStyle}>
+                  Nomor BTT
+                </label>
+
                 <input
                   type="text"
-                  name="nomor_btt"
-                  value={form.nomor_btt}
-                  onChange={ubahInput}
-                  placeholder="Contoh: 019122"
-                  required
-                  className={inputStyle}
+                  value="Otomatis"
+                  readOnly
+                  className="mt-2 w-full cursor-not-allowed rounded-lg border border-gray-300 bg-gray-100 px-3 py-3 text-gray-500"
                 />
+
+                <p className="mt-1 text-xs text-gray-500">
+                  Nomor BTT dibuat otomatis saat data disimpan.
+                </p>
               </div>
 
               <div>
-                <label className={labelStyle}>Tanggal *</label>
+                <label className={labelStyle}>
+                  Tanggal *
+                </label>
+
                 <input
                   type="date"
                   name="tanggal"
@@ -122,6 +133,7 @@ export default function TambahBttPage() {
               <label className={labelStyle}>
                 Isi Kiriman Menurut Pengakuan *
               </label>
+
               <input
                 type="text"
                 name="isi_kiriman"
@@ -135,7 +147,10 @@ export default function TambahBttPage() {
 
             <div className="grid gap-5 sm:grid-cols-2">
               <div>
-                <label className={labelStyle}>Jumlah Colli *</label>
+                <label className={labelStyle}>
+                  Jumlah Colli *
+                </label>
+
                 <input
                   type="number"
                   name="jumlah_colli"
@@ -150,7 +165,10 @@ export default function TambahBttPage() {
               </div>
 
               <div>
-                <label className={labelStyle}>Berat (kg)</label>
+                <label className={labelStyle}>
+                  Berat (kg)
+                </label>
+
                 <input
                   type="number"
                   name="berat"
@@ -165,7 +183,10 @@ export default function TambahBttPage() {
             </div>
 
             <div>
-              <label className={labelStyle}>Pembayaran</label>
+              <label className={labelStyle}>
+                Pembayaran
+              </label>
+
               <select
                 name="pembayaran"
                 value={form.pembayaran}
@@ -181,7 +202,10 @@ export default function TambahBttPage() {
 
             <div className="grid gap-5 sm:grid-cols-2">
               <div>
-                <label className={labelStyle}>Penerima *</label>
+                <label className={labelStyle}>
+                  Penerima *
+                </label>
+
                 <input
                   type="text"
                   name="penerima"
@@ -194,7 +218,10 @@ export default function TambahBttPage() {
               </div>
 
               <div>
-                <label className={labelStyle}>Pengirim *</label>
+                <label className={labelStyle}>
+                  Pengirim *
+                </label>
+
                 <input
                   type="text"
                   name="pengirim"
@@ -209,7 +236,10 @@ export default function TambahBttPage() {
 
             <div className="grid gap-5 sm:grid-cols-2">
               <div>
-                <label className={labelStyle}>Biaya (Rp)</label>
+                <label className={labelStyle}>
+                  Biaya (Rp)
+                </label>
+
                 <input
                   type="number"
                   name="biaya"
@@ -223,7 +253,10 @@ export default function TambahBttPage() {
               </div>
 
               <div>
-                <label className={labelStyle}>Petugas</label>
+                <label className={labelStyle}>
+                  Petugas
+                </label>
+
                 <input
                   type="text"
                   name="petugas"

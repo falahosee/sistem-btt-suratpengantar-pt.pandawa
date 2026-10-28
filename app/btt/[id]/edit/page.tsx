@@ -90,7 +90,6 @@ export default function EditBttPage() {
     const { data, error } = await supabase
       .from("btt")
       .update({
-        nomor_btt: form.nomor_btt.trim(),
         tanggal: form.tanggal,
         isi_kiriman: form.isi_kiriman.trim(),
         jumlah_colli: Number(form.jumlah_colli),
@@ -127,6 +126,7 @@ export default function EditBttPage() {
         "Gagal memperbarui BTT: " +
           error.message
       );
+
       return;
     }
 
@@ -134,6 +134,7 @@ export default function EditBttPage() {
       alert(
         "Data tidak berhasil diperbarui. Cek policy UPDATE di Supabase."
       );
+
       return;
     }
 
@@ -152,6 +153,7 @@ export default function EditBttPage() {
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-8 text-gray-900">
       <div className="mx-auto max-w-3xl">
+
         <header className="mb-6 rounded-xl bg-[#183B63] p-6 text-white shadow">
           <h1 className="text-xl font-bold">
             PT Pandawa Jaya Transindo
@@ -196,19 +198,22 @@ export default function EditBttPage() {
               className="space-y-6"
             >
               <div className="grid gap-5 sm:grid-cols-2">
+
                 <div>
                   <label className={labelStyle}>
-                    Nomor BTT *
+                    Nomor BTT
                   </label>
 
                   <input
                     type="text"
-                    name="nomor_btt"
                     value={form.nomor_btt}
-                    onChange={ubahInput}
-                    required
-                    className={inputStyle}
+                    readOnly
+                    className="mt-2 w-full cursor-not-allowed rounded-lg border border-gray-300 bg-gray-100 px-3 py-3 text-gray-600"
                   />
+
+                  <p className="mt-1 text-xs text-gray-500">
+                    Nomor BTT dibuat otomatis dan tidak dapat diubah.
+                  </p>
                 </div>
 
                 <div>

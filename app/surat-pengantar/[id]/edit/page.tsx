@@ -48,7 +48,8 @@ export default function EditSuratPengantarPage() {
 
       if (errorSurat || !surat) {
         setError(
-          errorSurat?.message || "Data Surat Pengantar tidak ditemukan."
+          errorSurat?.message ||
+            "Data Surat Pengantar tidak ditemukan."
         );
         setLoading(false);
         return;
@@ -123,7 +124,10 @@ export default function EditSuratPengantarPage() {
     setDaftarKiriman((sebelumnya) =>
       sebelumnya.map((item) =>
         item.id === idKiriman
-          ? { ...item, [field]: value }
+          ? {
+              ...item,
+              [field]: value,
+            }
           : item
       )
     );
@@ -185,7 +189,6 @@ export default function EditSuratPengantarPage() {
     const { error: errorSurat } = await supabase
       .from("surat_pengantar")
       .update({
-        nomor_surat: form.nomor_surat.trim(),
         dari: form.dari.trim() || null,
         tujuan: form.tujuan.trim() || null,
         tanggal_pengiriman: form.tanggal_pengiriman,
@@ -195,10 +198,12 @@ export default function EditSuratPengantarPage() {
 
     if (errorSurat) {
       setMenyimpan(false);
+
       setError(
         "Gagal memperbarui Surat Pengantar: " +
           errorSurat.message
       );
+
       return;
     }
 
@@ -209,10 +214,12 @@ export default function EditSuratPengantarPage() {
 
     if (errorHapus) {
       setMenyimpan(false);
+
       setError(
         "Gagal memperbarui detail kiriman: " +
           errorHapus.message
       );
+
       return;
     }
 
@@ -222,15 +229,19 @@ export default function EditSuratPengantarPage() {
       penerima: item.penerima.trim(),
       pengirim: item.pengirim.trim(),
       jumlah_colli: Number(item.jumlah_colli),
+
       berat:
         item.berat === ""
           ? null
           : Number(item.berat),
+
       biaya:
         item.biaya === ""
           ? null
           : Number(item.biaya),
-      keterangan: item.keterangan.trim() || null,
+
+      keterangan:
+        item.keterangan.trim() || null,
     }));
 
     const { error: errorInsert } = await supabase
@@ -244,6 +255,7 @@ export default function EditSuratPengantarPage() {
         "Surat Pengantar diperbarui, tetapi detail kiriman gagal disimpan: " +
           errorInsert.message
       );
+
       return;
     }
 
@@ -310,19 +322,22 @@ export default function EditSuratPengantarPage() {
           )}
 
           <div className="grid gap-5 sm:grid-cols-2">
+
             <div>
               <label className={labelStyle}>
-                Nomor Surat *
+                Nomor Surat
               </label>
 
               <input
                 type="text"
-                name="nomor_surat"
                 value={form.nomor_surat}
-                onChange={ubahForm}
-                required
-                className={inputStyle}
+                readOnly
+                className="mt-2 w-full cursor-not-allowed rounded-lg border border-gray-300 bg-gray-100 px-3 py-3 text-sm text-gray-600"
               />
+
+              <p className="mt-1 text-xs text-gray-500">
+                Nomor Surat Pengantar dibuat otomatis dan tidak dapat diubah.
+              </p>
             </div>
 
             <div>
@@ -385,6 +400,7 @@ export default function EditSuratPengantarPage() {
 
           <div className="mt-8 border-t border-gray-200 pt-6">
             <div className="mb-5 flex items-center justify-between gap-3">
+
               <h3 className="text-lg font-semibold">
                 Daftar Kiriman
               </h3>
@@ -405,13 +421,16 @@ export default function EditSuratPengantarPage() {
                   className="rounded-lg border border-gray-200 bg-slate-50 p-4"
                 >
                   <div className="mb-4 flex justify-between">
+
                     <h4 className="font-semibold">
                       Kiriman {index + 1}
                     </h4>
 
                     <button
                       type="button"
-                      onClick={() => hapusKiriman(item.id)}
+                      onClick={() =>
+                        hapusKiriman(item.id)
+                      }
                       disabled={daftarKiriman.length === 1}
                       className="text-sm text-red-600 disabled:opacity-40"
                     >
@@ -529,6 +548,7 @@ export default function EditSuratPengantarPage() {
           </div>
 
           <div className="mt-8 flex justify-end gap-3 border-t border-gray-200 pt-6">
+
             <Link
               href={`/surat-pengantar/${id}`}
               className="rounded-lg border border-gray-300 px-5 py-3 text-sm"

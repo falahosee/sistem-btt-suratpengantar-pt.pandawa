@@ -31,7 +31,6 @@ export default function TambahSuratPengantarPage() {
   const router = useRouter();
 
   const [form, setForm] = useState({
-    nomor_surat: "",
     dari: "",
     tujuan: "",
     tanggal_pengiriman: "",
@@ -128,13 +127,12 @@ export default function TambahSuratPengantarPage() {
     const { data: surat, error: errorSurat } = await supabase
       .from("surat_pengantar")
       .insert({
-        nomor_surat: form.nomor_surat.trim(),
         dari: form.dari.trim() || null,
         tujuan: form.tujuan.trim() || null,
         tanggal_pengiriman: form.tanggal_pengiriman,
         petugas: form.petugas.trim() || null,
       })
-      .select("id")
+      .select("id, nomor_surat")
       .single();
 
     if (errorSurat || !surat) {
@@ -154,15 +152,19 @@ export default function TambahSuratPengantarPage() {
       penerima: item.penerima.trim(),
       pengirim: item.pengirim.trim(),
       jumlah_colli: Number(item.jumlah_colli),
+
       berat:
         item.berat === ""
           ? null
           : Number(item.berat),
+
       biaya:
         item.biaya === ""
           ? null
           : Number(item.biaya),
-      keterangan: item.keterangan.trim() || null,
+
+      keterangan:
+        item.keterangan.trim() || null,
     }));
 
     const { error: errorDetail } = await supabase
@@ -180,7 +182,9 @@ export default function TambahSuratPengantarPage() {
       return;
     }
 
-    alert("Surat Pengantar berhasil disimpan!");
+    alert(
+      `Surat Pengantar berhasil disimpan!\nNomor Surat: ${surat.nomor_surat}`
+    );
 
     router.push("/surat-pengantar");
     router.refresh();
@@ -232,20 +236,22 @@ export default function TambahSuratPengantarPage() {
             </h3>
 
             <div className="grid gap-5 sm:grid-cols-2">
+
               <div>
                 <label className={labelStyle}>
-                  Nomor Surat *
+                  Nomor Surat
                 </label>
 
                 <input
                   type="text"
-                  name="nomor_surat"
-                  value={form.nomor_surat}
-                  onChange={ubahForm}
-                  placeholder="Contoh: OJT / 07 / 03 / 2026"
-                  required
-                  className={inputStyle}
+                  value="Otomatis"
+                  readOnly
+                  className="mt-2 w-full cursor-not-allowed rounded-lg border border-gray-300 bg-gray-100 px-3 py-3 text-sm text-gray-500"
                 />
+
+                <p className="mt-1 text-xs text-gray-500">
+                  Nomor Surat Pengantar dibuat otomatis saat data disimpan.
+                </p>
               </div>
 
               <div>
@@ -312,6 +318,7 @@ export default function TambahSuratPengantarPage() {
 
           <div className="border-t border-gray-200 pt-6">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+
               <div>
                 <h3 className="text-lg font-semibold">
                   Daftar Kiriman
@@ -338,6 +345,7 @@ export default function TambahSuratPengantarPage() {
                   className="rounded-lg border border-gray-200 bg-slate-50 p-4"
                 >
                   <div className="mb-4 flex items-center justify-between">
+
                     <h4 className="font-semibold">
                       Kiriman {index + 1}
                     </h4>
@@ -353,6 +361,7 @@ export default function TambahSuratPengantarPage() {
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+
                     <div>
                       <label className={labelStyle}>
                         STT *
@@ -512,6 +521,7 @@ export default function TambahSuratPengantarPage() {
           </div>
 
           <div className="mt-8 flex flex-wrap justify-end gap-3 border-t border-gray-200 pt-6">
+
             <Link
               href="/surat-pengantar"
               className="rounded-lg border border-gray-300 px-5 py-3 text-sm font-medium hover:bg-gray-50"

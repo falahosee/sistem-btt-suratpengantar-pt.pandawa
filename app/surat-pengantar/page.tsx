@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -21,6 +22,7 @@ export default function SuratPengantarPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // MENGAMBIL DATA SURAT PENGANTAR
   useEffect(() => {
     async function ambilData() {
       setLoading(true);
@@ -45,6 +47,7 @@ export default function SuratPengantarPage() {
     ambilData();
   }, []);
 
+  // PENCARIAN DAN FILTER TANGGAL
   const hasilFilter = useMemo(() => {
     const kata = pencarian.toLowerCase().trim();
 
@@ -69,27 +72,82 @@ export default function SuratPengantarPage() {
         cocokTanggalAkhir
       );
     });
-  }, [
-    dataSurat,
-    pencarian,
-    tanggalAwal,
-    tanggalAkhir,
-  ]);
+  }, [dataSurat, pencarian, tanggalAwal, tanggalAkhir]);
 
+  // RESET FILTER
   function resetFilter() {
     setPencarian("");
     setTanggalAwal("");
     setTanggalAkhir("");
   }
 
+  // FORMAT TANGGAL
   function formatTanggal(tanggal: string) {
     if (!tanggal) return "-";
 
     const [tahun, bulan, hari] = tanggal.split("-");
-
     return `${hari}/${bulan}/${tahun}`;
   }
 
+  // EXPORT CSV SURAT PENGANTAR
+  function exportCSV() {
+    if (loading || error || hasilFilter.length === 0) {
+      return;
+    }
+
+    const headers = [
+      "Nomor Surat",
+      "Tanggal Pengiriman",
+      "Dari",
+      "Tujuan",
+      "Petugas",
+    ];
+
+    // Melindungi data teks dari formula spreadsheet
+    function amanCSV(nilai: unknown) {
+      const teks = String(nilai ?? "");
+
+      const teksAman = /^[\s]*[=+\-@\t\r\n]/.test(teks)
+        ? "'" + teks
+        : teks;
+
+      return `"${teksAman.replace(/"/g, '""')}"`;
+    }
+
+    const rows = hasilFilter.map((item) => [
+      item.nomor_surat,
+      formatTanggal(item.tanggal_pengiriman),
+      item.dari ?? "",
+      item.tujuan ?? "",
+      item.petugas ?? "",
+    ]);
+
+    const isiCSV = [headers, ...rows]
+      .map((row) => row.map(amanCSV).join(";"))
+      .join("\r\n");
+
+    // UTF-8 BOM untuk kompatibilitas Excel
+    const blob = new Blob(["\uFEFF", isiCSV], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    const tanggalFile = new Date()
+      .toLocaleDateString("en-CA");
+
+    link.href = url;
+    link.download = `rekap-surat-pengantar-${tanggalFile}.csv`;
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    URL.revokeObjectURL(url);
+  }
+
+  // STATUS FILTER
   const filterAktif =
     pencarian !== "" ||
     tanggalAwal !== "" ||
@@ -99,6 +157,7 @@ export default function SuratPengantarPage() {
     <main className="min-h-screen bg-slate-100 px-4 py-8 text-gray-900">
       <div className="mx-auto max-w-6xl">
 
+        {/* HEADER */}
         <header className="mb-6 rounded-xl bg-[#183B63] p-6 text-white shadow">
           <h1 className="text-xl font-bold">
             PT Pandawa Jaya Transindo
@@ -111,6 +170,7 @@ export default function SuratPengantarPage() {
 
         <section className="rounded-xl bg-white p-6 shadow-sm">
 
+          {/* JUDUL DAN TOMBOL AKSI */}
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
             <div>
               <h2 className="text-2xl font-bold">
@@ -123,6 +183,7 @@ export default function SuratPengantarPage() {
             </div>
 
             <div className="flex flex-wrap gap-3">
+
               <Link
                 href="/dashboard"
                 className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -136,6 +197,21 @@ export default function SuratPengantarPage() {
               >
                 + Tambah Surat Pengantar
               </Link>
+
+              {/* TOMBOL EXPORT CSV */}
+              <button
+                type="button"
+                onClick={exportCSV}
+                disabled={
+                  loading ||
+                  !!error ||
+                  hasilFilter.length === 0
+                }
+                className="rounded-lg bg-green-600 px-5 py-3 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Export CSV
+              </button>
+
             </div>
           </div>
 
@@ -143,6 +219,7 @@ export default function SuratPengantarPage() {
           <div className="mb-6 rounded-xl border border-gray-200 bg-slate-50 p-4">
             <div className="grid gap-4 lg:grid-cols-4">
 
+              {/* PENCARIAN */}
               <div className="lg:col-span-2">
                 <label className="mb-2 block text-sm font-medium text-gray-700">
                   Pencarian
@@ -159,6 +236,7 @@ export default function SuratPengantarPage() {
                 />
               </div>
 
+              {/* DARI TANGGAL */}
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
                   Dari Tanggal
@@ -174,6 +252,7 @@ export default function SuratPengantarPage() {
                 />
               </div>
 
+              {/* SAMPAI TANGGAL */}
               <div>
                 <label className="mb-2 block text-sm font-medium text-gray-700">
                   Sampai Tanggal
@@ -189,10 +268,10 @@ export default function SuratPengantarPage() {
                   className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
                 />
               </div>
+
             </div>
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-
               <p className="text-sm text-gray-500">
                 Filter dapat digunakan bersamaan dengan pencarian.
               </p>
@@ -208,6 +287,7 @@ export default function SuratPengantarPage() {
             </div>
           </div>
 
+          {/* DATA SURAT PENGANTAR */}
           {loading ? (
             <p className="py-8 text-center text-gray-500">
               Memuat data Surat Pengantar...
@@ -219,27 +299,34 @@ export default function SuratPengantarPage() {
           ) : (
             <>
               <div className="overflow-x-auto rounded-lg border border-gray-200">
-
                 <table className="w-full min-w-[900px] border-collapse text-left text-sm">
 
                   <thead className="bg-slate-100 text-gray-700">
                     <tr>
-                      <th className="px-4 py-4">No.</th>
+                      <th className="px-4 py-4">
+                        No.
+                      </th>
+
                       <th className="px-4 py-4">
                         Nomor Surat
                       </th>
+
                       <th className="px-4 py-4">
                         Tanggal Pengiriman
                       </th>
+
                       <th className="px-4 py-4">
                         Dari
                       </th>
+
                       <th className="px-4 py-4">
                         Tujuan
                       </th>
+
                       <th className="px-4 py-4">
                         Petugas
                       </th>
+
                       <th className="px-4 py-4">
                         Aksi
                       </th>

@@ -1,10 +1,14 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+
+// UUID admin yang sudah diverifikasi di Supabase.
+// Digunakan untuk tampilan, bukan pengganti RLS.
+const ADMIN_USER_ID =
+  "6b28a63b-1771-4f75-9eb8-845413237e89";
 
 type Btt = {
   id: number;
@@ -29,15 +33,61 @@ export default function DetailBttPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // State untuk fitur hapus
+  // Hak akses tampilan pengguna
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [checkingAdmin, setCheckingAdmin] =
+    useState(true);
+
+  // State konfirmasi penghapusan
   const [konfirmasiHapus, setKonfirmasiHapus] =
     useState(false);
   const [sedangMenghapus, setSedangMenghapus] =
     useState(false);
   const [errorHapus, setErrorHapus] = useState("");
 
+  // Memeriksa identitas pengguna login
+  useEffect(() => {
+    let aktif = true;
+
+    async function cekAdmin() {
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser();
+
+      if (!aktif) return;
+
+      if (error || !user) {
+        setIsAdmin(false);
+      } else {
+        setIsAdmin(user.id === ADMIN_USER_ID);
+      }
+
+      setCheckingAdmin(false);
+    }
+
+    cekAdmin();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      if (!aktif) return;
+
+      setIsAdmin(false);
+      setCheckingAdmin(true);
+      void cekAdmin();
+    });
+
+    return () => {
+      aktif = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
   // Mengambil detail BTT
   useEffect(() => {
+    let aktif = true;
+
     async function ambilBtt() {
       setLoading(true);
       setError("");
@@ -48,7 +98,10 @@ export default function DetailBttPage() {
         .eq("id", id)
         .single();
 
+      if (!aktif) return;
+
       if (error) {
+        setBtt(null);
         setError(
           "Data BTT tidak ditemukan: " + error.message
         );
@@ -59,7 +112,11 @@ export default function DetailBttPage() {
       setLoading(false);
     }
 
-    ambilBtt();
+    void ambilBtt();
+
+    return () => {
+      aktif = false;
+    };
   }, [id]);
 
   function formatRupiah(nilai: number | null) {
@@ -81,13 +138,13 @@ export default function DetailBttPage() {
     }).format(new Date(tanggal + "T00:00:00Z"));
   }
 
-  // Membuka konfirmasi hapus
   function bukaKonfirmasiHapus() {
+    if (!isAdmin || checkingAdmin) return;
+
     setErrorHapus("");
     setKonfirmasiHapus(true);
   }
 
-  // Membatalkan penghapusan
   function batalHapus() {
     if (sedangMenghapus) return;
 
@@ -95,14 +152,37 @@ export default function DetailBttPage() {
     setErrorHapus("");
   }
 
-  // Menghapus BTT setelah konfirmasi
+  // Penghapusan hanya dicoba oleh akun admin.
+  // RLS Supabase tetap menjadi pengaman utama.
   async function hapusBtt() {
-    if (!btt || sedangMenghapus) return;
+    if (!btt || sedangMenghapus || !isAdmin) {
+      return;
+    }
 
     setSedangMenghapus(true);
     setErrorHapus("");
 
     try {
+      // Periksa lagi identitas sebelum DELETE
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (
+        authError ||
+        !user ||
+        user.id !== ADMIN_USER_ID
+      ) {
+        setIsAdmin(false);
+        setKonfirmasiHapus(false);
+
+        throw new Error(
+          "Akses ditolak. Hanya admin yang " +
+            "dapat menghapus dokumen BTT."
+        );
+      }
+
       const { data, error } = await supabase
         .from("btt")
         .delete()
@@ -113,17 +193,16 @@ export default function DetailBttPage() {
         throw new Error(error.message);
       }
 
-      // Memastikan ada baris yang benar-benar dihapus.
       if (!data || data.length !== 1) {
         throw new Error(
           "Penghapusan tidak terkonfirmasi. " +
-          "Periksa izin DELETE dan SELECT pada Supabase."
+            "Periksa izin DELETE dan SELECT " +
+            "pada Supabase."
         );
       }
 
       setKonfirmasiHapus(false);
 
-      // Kembali ke halaman daftar BTT
       router.push("/btt");
       router.refresh();
     } catch (err) {
@@ -248,7 +327,6 @@ export default function DetailBttPage() {
 
               {/* TOMBOL AKSI */}
               <div className="mt-8 flex flex-wrap justify-end gap-3 border-t border-gray-200 pt-6">
-
                 <Link
                   href="/btt"
                   className="rounded-lg border border-gray-300 px-5 py-3 text-sm font-medium hover:bg-gray-50"
@@ -270,15 +348,16 @@ export default function DetailBttPage() {
                   Print BTT
                 </Link>
 
-                {/* TOMBOL HAPUS BARU */}
-                <button
-                  type="button"
-                  onClick={bukaKonfirmasiHapus}
-                  className="rounded-lg bg-red-600 px-5 py-3 text-sm font-medium text-white hover:bg-red-700"
-                >
-                  Hapus BTT
-                </button>
-
+                {/* HANYA ADMIN MELIHAT TOMBOL HAPUS */}
+                {!checkingAdmin && isAdmin && (
+                  <button
+                    type="button"
+                    onClick={bukaKonfirmasiHapus}
+                    className="rounded-lg bg-red-600 px-5 py-3 text-sm font-medium text-white hover:bg-red-700"
+                  >
+                    Hapus BTT
+                  </button>
+                )}
               </div>
             </>
           ) : (
@@ -289,10 +368,9 @@ export default function DetailBttPage() {
         </section>
       </div>
 
-      {/* MODAL KONFIRMASI HAPUS */}
-      {konfirmasiHapus && btt && (
+      {/* MODAL KONFIRMASI KHUSUS ADMIN */}
+      {konfirmasiHapus && btt && isAdmin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-
           <div
             role="alertdialog"
             aria-modal="true"
@@ -334,7 +412,6 @@ export default function DetailBttPage() {
               Tindakan ini tidak dapat dibatalkan.
             </p>
 
-            {/* PESAN ERROR */}
             {errorHapus && (
               <div
                 role="alert"
@@ -345,7 +422,6 @@ export default function DetailBttPage() {
             )}
 
             <div className="mt-6 flex flex-wrap justify-end gap-3">
-
               <button
                 type="button"
                 onClick={batalHapus}
@@ -365,12 +441,10 @@ export default function DetailBttPage() {
                   ? "Menghapus..."
                   : "Ya, Hapus BTT"}
               </button>
-
             </div>
           </div>
         </div>
       )}
-
     </main>
   );
 }

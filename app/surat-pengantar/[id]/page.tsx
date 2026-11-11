@@ -1,10 +1,14 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+
+// UUID admin yang sudah diverifikasi di Supabase.
+// Pengamanan utama tetap menggunakan RLS database.
+const ADMIN_USER_ID =
+  "6b28a63b-1771-4f75-9eb8-845413237e89";
 
 type SuratPengantar = {
   id: number;
@@ -31,21 +35,75 @@ export default function DetailSuratPengantarPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
 
-  const [surat, setSurat] = useState<SuratPengantar | null>(
-    null
-  );
-  const [kiriman, setKiriman] = useState<DetailKiriman[]>([]);
+  const [surat, setSurat] =
+    useState<SuratPengantar | null>(null);
+
+  const [kiriman, setKiriman] =
+    useState<DetailKiriman[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // State untuk fitur konfirmasi hapus
+  // Hak akses tampilan admin dan staf
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [checkingAdmin, setCheckingAdmin] =
+    useState(true);
+
+  // State konfirmasi penghapusan
   const [konfirmasiHapus, setKonfirmasiHapus] =
     useState(false);
+
   const [sedangMenghapus, setSedangMenghapus] =
     useState(false);
+
   const [errorHapus, setErrorHapus] = useState("");
 
-  // Mengambil data Surat Pengantar dan detail kiriman
+  // Memeriksa identitas pengguna
+  useEffect(() => {
+    let aktif = true;
+
+    async function cekAdmin() {
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (!aktif) return;
+
+      setIsAdmin(
+        !authError &&
+          user?.id === ADMIN_USER_ID
+      );
+
+      setCheckingAdmin(false);
+    }
+
+    void cekAdmin();
+
+    // Memantau perubahan sesi login/logout.
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (!aktif) return;
+
+        setIsAdmin(
+          session?.user?.id === ADMIN_USER_ID
+        );
+
+        setCheckingAdmin(false);
+        setKonfirmasiHapus(false);
+        setErrorHapus("");
+      }
+    );
+
+    return () => {
+      aktif = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Mengambil Surat Pengantar dan detail kiriman
   useEffect(() => {
     let aktif = true;
 
@@ -53,18 +111,22 @@ export default function DetailSuratPengantarPage() {
       setLoading(true);
       setError("");
 
-      const { data: dataSurat, error: errorSurat } =
-        await supabase
-          .from("surat_pengantar")
-          .select(
-            "id, nomor_surat, dari, tujuan, tanggal_pengiriman, petugas"
-          )
-          .eq("id", id)
-          .single();
+      const {
+        data: dataSurat,
+        error: errorSurat,
+      } = await supabase
+        .from("surat_pengantar")
+        .select(
+          "id, nomor_surat, dari, tujuan, tanggal_pengiriman, petugas"
+        )
+        .eq("id", id)
+        .single();
 
       if (!aktif) return;
 
       if (errorSurat || !dataSurat) {
+        setSurat(null);
+        setKiriman([]);
         setError(
           errorSurat?.message ||
             "Data Surat Pengantar tidak ditemukan."
@@ -73,18 +135,22 @@ export default function DetailSuratPengantarPage() {
         return;
       }
 
-      const { data: dataKiriman, error: errorKiriman } =
-        await supabase
-          .from("surat_pengantar_detail")
-          .select(
-            "id, surat_pengantar_id, stt, penerima, pengirim, jumlah_colli, berat, biaya, keterangan"
-          )
-          .eq("surat_pengantar_id", id)
-          .order("id", { ascending: true });
+      const {
+        data: dataKiriman,
+        error: errorKiriman,
+      } = await supabase
+        .from("surat_pengantar_detail")
+        .select(
+          "id, surat_pengantar_id, stt, penerima, pengirim, jumlah_colli, berat, biaya, keterangan"
+        )
+        .eq("surat_pengantar_id", id)
+        .order("id", { ascending: true });
 
       if (!aktif) return;
 
       if (errorKiriman) {
+        setSurat(null);
+        setKiriman([]);
         setError(errorKiriman.message);
         setLoading(false);
         return;
@@ -95,7 +161,7 @@ export default function DetailSuratPengantarPage() {
       setLoading(false);
     }
 
-    ambilData();
+    void ambilData();
 
     return () => {
       aktif = false;
@@ -106,7 +172,9 @@ export default function DetailSuratPengantarPage() {
   function formatTanggal(tanggal: string) {
     if (!tanggal) return "-";
 
-    const [tahun, bulan, hari] = tanggal.split("-");
+    const [tahun, bulan, hari] =
+      tanggal.split("-");
+
     return `${hari}/${bulan}/${tahun}`;
   }
 
@@ -114,16 +182,20 @@ export default function DetailSuratPengantarPage() {
   function formatRupiah(nilai: number | null) {
     if (nilai === null) return "-";
 
-    return new Intl.NumberFormat("id-ID").format(nilai);
+    return new Intl.NumberFormat("id-ID").format(
+      nilai
+    );
   }
 
-  // Membuka dialog konfirmasi hapus
+  // Membuka dialog hanya untuk admin
   function bukaKonfirmasiHapus() {
+    if (!isAdmin || checkingAdmin) return;
+
     setErrorHapus("");
     setKonfirmasiHapus(true);
   }
 
-  // Membatalkan proses hapus
+  // Membatalkan penghapusan
   function batalHapus() {
     if (sedangMenghapus) return;
 
@@ -133,33 +205,60 @@ export default function DetailSuratPengantarPage() {
 
   // Menghapus Surat Pengantar setelah konfirmasi
   async function hapusSuratPengantar() {
-    if (!surat || sedangMenghapus) return;
+    if (
+      !surat ||
+      sedangMenghapus ||
+      !isAdmin ||
+      checkingAdmin
+    ) {
+      return;
+    }
 
     setSedangMenghapus(true);
     setErrorHapus("");
 
     try {
-      const { data, error: errorDelete } =
-        await supabase
-          .from("surat_pengantar")
-          .delete()
-          .eq("id", surat.id)
-          .select("id");
+      // Periksa kembali identitas pengguna.
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (
+        authError ||
+        !user ||
+        user.id !== ADMIN_USER_ID
+      ) {
+        throw new Error(
+          "Akses ditolak. Hanya admin yang " +
+            "dapat menghapus Surat Pengantar."
+        );
+      }
+
+      // RLS Supabase tetap memvalidasi izin DELETE.
+      const {
+        data,
+        error: errorDelete,
+      } = await supabase
+        .from("surat_pengantar")
+        .delete()
+        .eq("id", surat.id)
+        .select("id");
 
       if (errorDelete) {
         throw new Error(errorDelete.message);
       }
 
-      // Periksa apakah satu data induk terhapus
+      // Memastikan satu record benar-benar terhapus.
       if (!data || data.length !== 1) {
         throw new Error(
           "Penghapusan tidak terkonfirmasi. " +
-            "Periksa izin DELETE dan SELECT pada Supabase."
+            "Periksa izin DELETE dan SELECT " +
+            "pada Supabase."
         );
       }
 
-      // Foreign key ON DELETE CASCADE akan menghapus
-      // detail yang berelasi dengan Surat Pengantar.
+      // ON DELETE CASCADE menghapus detail terkait.
       setKonfirmasiHapus(false);
 
       router.push("/surat-pengantar");
@@ -175,6 +274,7 @@ export default function DetailSuratPengantarPage() {
     }
   }
 
+  // Loading data
   if (loading) {
     return (
       <main className="min-h-screen bg-slate-100 p-8 text-gray-900">
@@ -183,12 +283,14 @@ export default function DetailSuratPengantarPage() {
     );
   }
 
+  // Error data
   if (error || !surat) {
     return (
       <main className="min-h-screen bg-slate-100 p-8 text-gray-900">
         <div className="mx-auto max-w-5xl rounded-xl bg-white p-6 shadow-sm">
           <p className="text-red-600">
-            {error || "Data Surat Pengantar tidak ditemukan."}
+            {error ||
+              "Data Surat Pengantar tidak ditemukan."}
           </p>
 
           <Link
@@ -205,6 +307,7 @@ export default function DetailSuratPengantarPage() {
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-8 text-gray-900">
       <div className="mx-auto max-w-6xl">
+
         {/* HEADER */}
         <header className="mb-6 rounded-xl bg-[#183B63] p-6 text-white shadow">
           <h1 className="text-xl font-bold">
@@ -230,6 +333,7 @@ export default function DetailSuratPengantarPage() {
 
           {/* INFORMASI SURAT */}
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+
             <div>
               <p className="text-sm text-gray-500">
                 Nomor Surat
@@ -246,7 +350,9 @@ export default function DetailSuratPengantarPage() {
               </p>
 
               <p className="mt-1 font-semibold">
-                {formatTanggal(surat.tanggal_pengiriman)}
+                {formatTanggal(
+                  surat.tanggal_pengiriman
+                )}
               </p>
             </div>
 
@@ -279,10 +385,12 @@ export default function DetailSuratPengantarPage() {
                 {surat.petugas || "-"}
               </p>
             </div>
+
           </div>
 
           {/* DAFTAR KIRIMAN */}
           <div className="mt-8 border-t border-gray-200 pt-6">
+
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-lg font-bold">
@@ -290,8 +398,8 @@ export default function DetailSuratPengantarPage() {
                 </h3>
 
                 <p className="mt-1 text-sm text-gray-500">
-                  Daftar STT yang tercatat pada Surat
-                  Pengantar ini.
+                  Daftar STT yang tercatat pada
+                  Surat Pengantar ini.
                 </p>
               </div>
 
@@ -301,7 +409,8 @@ export default function DetailSuratPengantarPage() {
             </div>
 
             <div className="overflow-x-auto rounded-lg border border-gray-200">
-              <table className="w-full min-w-[262.5] text-left text-sm">
+              <table className="w-full min-w-[1050px] text-left text-sm">
+
                 <thead className="bg-slate-100 text-gray-700">
                   <tr>
                     <th className="px-4 py-3">No.</th>
@@ -361,6 +470,7 @@ export default function DetailSuratPengantarPage() {
                     </tr>
                   ))}
                 </tbody>
+
               </table>
 
               {kiriman.length === 0 && (
@@ -373,6 +483,7 @@ export default function DetailSuratPengantarPage() {
 
           {/* TOMBOL AKSI */}
           <div className="mt-6 flex flex-wrap justify-end gap-3">
+
             <Link
               href="/surat-pengantar"
               className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -394,20 +505,23 @@ export default function DetailSuratPengantarPage() {
               Print Surat Pengantar
             </Link>
 
-            {/* TOMBOL HAPUS BARU */}
-            <button
-              type="button"
-              onClick={bukaKonfirmasiHapus}
-              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
-            >
-              Hapus Surat Pengantar
-            </button>
+            {/* TOMBOL HAPUS HANYA UNTUK ADMIN */}
+            {!checkingAdmin && isAdmin && (
+              <button
+                type="button"
+                onClick={bukaKonfirmasiHapus}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                Hapus Surat Pengantar
+              </button>
+            )}
           </div>
+
         </section>
       </div>
 
-      {/* MODAL KONFIRMASI HAPUS */}
-      {konfirmasiHapus && (
+      {/* MODAL KONFIRMASI KHUSUS ADMIN */}
+      {konfirmasiHapus && surat && isAdmin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <div
             role="alertdialog"
@@ -416,7 +530,7 @@ export default function DetailSuratPengantarPage() {
             aria-describedby="deskripsi-hapus-surat"
             className="w-full max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-xl"
           >
-            {/* ICON PERINGATAN */}
+
             <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
               <span
                 className="text-2xl font-bold text-red-600"
@@ -445,7 +559,7 @@ export default function DetailSuratPengantarPage() {
               ?
             </p>
 
-            {/* INFORMASI JUMLAH KIRIMAN */}
+            {/* JUMLAH DETAIL KIRIMAN */}
             <div className="mt-4 rounded-lg bg-slate-100 p-3">
               <p className="text-sm text-gray-700">
                 Jumlah detail kiriman yang tercatat:
@@ -453,7 +567,7 @@ export default function DetailSuratPengantarPage() {
               </p>
             </div>
 
-            {/* PERINGATAN PENGHAPUSAN */}
+            {/* PERINGATAN */}
             <div className="mt-3 rounded-lg bg-red-50 p-3">
               <p className="text-sm leading-6 text-red-700">
                 Perhatian: Surat Pengantar beserta
@@ -464,7 +578,7 @@ export default function DetailSuratPengantarPage() {
               </p>
             </div>
 
-            {/* PESAN ERROR */}
+            {/* ERROR PENGHAPUSAN */}
             {errorHapus && (
               <div
                 role="alert"
@@ -477,6 +591,7 @@ export default function DetailSuratPengantarPage() {
 
             {/* TOMBOL KONFIRMASI */}
             <div className="mt-6 flex flex-wrap justify-end gap-3">
+
               <button
                 type="button"
                 onClick={batalHapus}
@@ -496,6 +611,7 @@ export default function DetailSuratPengantarPage() {
                   ? "Menghapus..."
                   : "Ya, Hapus Surat Pengantar"}
               </button>
+
             </div>
           </div>
         </div>

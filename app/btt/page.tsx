@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -32,8 +31,8 @@ export default function BttPage() {
       const { data, error } = await supabase
         .from("btt")
         .select("*")
+        .eq("is_archived", false)
         .order("id", { ascending: false });
-
       if (error) {
         setError(error.message);
       } else {
@@ -204,6 +203,13 @@ export default function BttPage() {
                 className="rounded-lg bg-[#183B63] px-5 py-3 text-sm font-semibold text-white hover:bg-[#102C4D]"
               >
                 + Tambah BTT
+              </Link>
+
+              <Link
+                href="/btt/arsip"
+                className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Arsip BTT
               </Link>
 
               {/* TOMBOL EXPORT CSV */}

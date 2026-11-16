@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -30,11 +29,10 @@ export default function SuratPengantarPage() {
 
       const { data, error } = await supabase
         .from("surat_pengantar")
-        .select(
-          "id, nomor_surat, dari, tujuan, tanggal_pengiriman, petugas"
-        )
+        .select("id, nomor_surat, dari, tujuan, tanggal_pengiriman, petugas")
+        .eq("is_archived", false)
         .order("id", { ascending: false });
-
+        
       if (error) {
         setError(error.message);
       } else {
@@ -198,6 +196,13 @@ export default function SuratPengantarPage() {
                 + Tambah Surat Pengantar
               </Link>
 
+              <Link
+                href="/surat-pengantar/arsip"
+                className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Arsip Surat Pengantar
+              </Link>
+
               {/* TOMBOL EXPORT CSV */}
               <button
                 type="button"
@@ -299,7 +304,7 @@ export default function SuratPengantarPage() {
           ) : (
             <>
               <div className="overflow-x-auto rounded-lg border border-gray-200">
-                <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+                <table className="w-full min-w-225 border-collapse text-left text-sm">
 
                   <thead className="bg-slate-100 text-gray-700">
                     <tr>

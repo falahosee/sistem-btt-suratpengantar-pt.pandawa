@@ -5,10 +5,27 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
-// UUID admin yang sudah diverifikasi di Supabase.
-// Pengamanan utama tetap menggunakan RLS database.
-const ADMIN_USER_ID =
-  "6b28a63b-1771-4f75-9eb8-845413237e89";
+const ADMIN_USER_ID = "6b28a63b-1771-4f75-9eb8-845413237e89";
+
+const KOLOM_SURAT =
+  "id, nomor_surat, dari, tujuan, tanggal_pengiriman, petugas, is_archived, archived_at";
+
+const formatWaktuArsip = new Intl.DateTimeFormat("id-ID", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "Asia/Jakarta",
+});
+
+const formatAngka = new Intl.NumberFormat("id-ID");
+
+const tombolNetral =
+  "rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50";
+
+const tombolBiru =
+  "rounded-lg bg-[#183B63] px-4 py-2 text-sm font-semibold text-white hover:bg-[#102C4D] disabled:opacity-50";
+
+const tombolMerah =
+  "rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50";
 
 type SuratPengantar = {
   id: number;
@@ -17,11 +34,12 @@ type SuratPengantar = {
   tujuan: string | null;
   tanggal_pengiriman: string;
   petugas: string | null;
+  is_archived: boolean;
+  archived_at: string | null;
 };
 
 type DetailKiriman = {
   id: number;
-  surat_pengantar_id: number;
   stt: string | null;
   penerima: string | null;
   pengirim: string | null;
@@ -31,133 +49,95 @@ type DetailKiriman = {
   keterangan: string | null;
 };
 
+type Aksi = "arsipkan" | "pulihkan" | "hapus";
+
+const labelAksi: Record<Aksi, string> = {
+  arsipkan: "Arsipkan Surat Pengantar",
+  pulihkan: "Pulihkan Surat Pengantar",
+  hapus: "Hapus Surat Pengantar",
+};
+
+const deskripsiAksi: Record<Aksi, string> = {
+  arsipkan: "Surat dan seluruh detail kirimannya tetap tersimpan.",
+  pulihkan: "Surat akan kembali berstatus Aktif.",
+  hapus: "Surat dan seluruh detail kirimannya akan dihapus secara permanen.",
+};
+
+function formatTanggal(tanggal: string) {
+  if (!tanggal) return "-";
+
+  const [tahun, bulan, hari] = tanggal.split("-");
+  return `${hari}/${bulan}/${tahun}`;
+}
+
 export default function DetailSuratPengantarPage() {
   const { id } = useParams<{ id: string }>();
+
+  return <DetailSuratPengantar key={id} id={id} />;
+}
+
+function DetailSuratPengantar({ id }: { id: string }) {
   const router = useRouter();
 
-  const [surat, setSurat] =
-    useState<SuratPengantar | null>(null);
-
-  const [kiriman, setKiriman] =
-    useState<DetailKiriman[]>([]);
-
+  const [surat, setSurat] = useState<SuratPengantar | null>(null);
+  const [kiriman, setKiriman] = useState<DetailKiriman[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  // Hak akses tampilan admin dan staf
   const [isAdmin, setIsAdmin] = useState(false);
-  const [checkingAdmin, setCheckingAdmin] =
-    useState(true);
 
-  // State konfirmasi penghapusan
-  const [konfirmasiHapus, setKonfirmasiHapus] =
-    useState(false);
+  const [aksi, setAksi] = useState<Aksi | null>(null);
+  const [sedangMemproses, setSedangMemproses] = useState(false);
+  const [errorAksi, setErrorAksi] = useState("");
+  const [pesanSukses, setPesanSukses] = useState("");
 
-  const [sedangMenghapus, setSedangMenghapus] =
-    useState(false);
-
-  const [errorHapus, setErrorHapus] = useState("");
-
-  // Memeriksa identitas pengguna
   useEffect(() => {
-    let aktif = true;
-
-    async function cekAdmin() {
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
-
-      if (!aktif) return;
-
-      setIsAdmin(
-        !authError &&
-          user?.id === ADMIN_USER_ID
-      );
-
-      setCheckingAdmin(false);
-    }
-
-    void cekAdmin();
-
-    // Memantau perubahan sesi login/logout.
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        if (!aktif) return;
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      const admin = session?.user.id === ADMIN_USER_ID;
+      setIsAdmin(admin);
 
-        setIsAdmin(
-          session?.user?.id === ADMIN_USER_ID
-        );
-
-        setCheckingAdmin(false);
-        setKonfirmasiHapus(false);
-        setErrorHapus("");
+      if (!admin) {
+        setAksi(null);
+        setErrorAksi("");
       }
-    );
+    });
 
-    return () => {
-      aktif = false;
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Mengambil Surat Pengantar dan detail kiriman
   useEffect(() => {
     let aktif = true;
 
     async function ambilData() {
-      setLoading(true);
-      setError("");
-
-      const {
-        data: dataSurat,
-        error: errorSurat,
-      } = await supabase
-        .from("surat_pengantar")
-        .select(
-          "id, nomor_surat, dari, tujuan, tanggal_pengiriman, petugas"
-        )
-        .eq("id", id)
-        .single();
+      const [hasilSurat, hasilKiriman] = await Promise.all([
+        supabase
+          .from("surat_pengantar")
+          .select(KOLOM_SURAT)
+          .eq("id", id)
+          .single(),
+        supabase
+          .from("surat_pengantar_detail")
+          .select(
+            "id, stt, penerima, pengirim, jumlah_colli, berat, biaya, keterangan"
+          )
+          .eq("surat_pengantar_id", id)
+          .order("id", { ascending: true }),
+      ]);
 
       if (!aktif) return;
 
-      if (errorSurat || !dataSurat) {
-        setSurat(null);
-        setKiriman([]);
+      if (hasilSurat.error || !hasilSurat.data || hasilKiriman.error) {
         setError(
-          errorSurat?.message ||
+          hasilSurat.error?.message ||
+            hasilKiriman.error?.message ||
             "Data Surat Pengantar tidak ditemukan."
         );
-        setLoading(false);
-        return;
+      } else {
+        setSurat(hasilSurat.data);
+        setKiriman(hasilKiriman.data ?? []);
       }
 
-      const {
-        data: dataKiriman,
-        error: errorKiriman,
-      } = await supabase
-        .from("surat_pengantar_detail")
-        .select(
-          "id, surat_pengantar_id, stt, penerima, pengirim, jumlah_colli, berat, biaya, keterangan"
-        )
-        .eq("surat_pengantar_id", id)
-        .order("id", { ascending: true });
-
-      if (!aktif) return;
-
-      if (errorKiriman) {
-        setSurat(null);
-        setKiriman([]);
-        setError(errorKiriman.message);
-        setLoading(false);
-        return;
-      }
-
-      setSurat(dataSurat);
-      setKiriman(dataKiriman ?? []);
       setLoading(false);
     }
 
@@ -168,131 +148,102 @@ export default function DetailSuratPengantarPage() {
     };
   }, [id]);
 
-  // Format tanggal Indonesia
-  function formatTanggal(tanggal: string) {
-    if (!tanggal) return "-";
+  function bukaKonfirmasi(aksiBaru: Aksi) {
+    if (!isAdmin || sedangMemproses) return;
 
-    const [tahun, bulan, hari] =
-      tanggal.split("-");
-
-    return `${hari}/${bulan}/${tahun}`;
+    setErrorAksi("");
+    setPesanSukses("");
+    setAksi(aksiBaru);
   }
 
-  // Format nominal rupiah
-  function formatRupiah(nilai: number | null) {
-    if (nilai === null) return "-";
+  async function prosesAksi() {
+    if (!surat || !aksi || !isAdmin || sedangMemproses) return;
 
-    return new Intl.NumberFormat("id-ID").format(
-      nilai
-    );
-  }
-
-  // Membuka dialog hanya untuk admin
-  function bukaKonfirmasiHapus() {
-    if (!isAdmin || checkingAdmin) return;
-
-    setErrorHapus("");
-    setKonfirmasiHapus(true);
-  }
-
-  // Membatalkan penghapusan
-  function batalHapus() {
-    if (sedangMenghapus) return;
-
-    setKonfirmasiHapus(false);
-    setErrorHapus("");
-  }
-
-  // Menghapus Surat Pengantar setelah konfirmasi
-  async function hapusSuratPengantar() {
-    if (
-      !surat ||
-      sedangMenghapus ||
-      !isAdmin ||
-      checkingAdmin
-    ) {
-      return;
-    }
-
-    setSedangMenghapus(true);
-    setErrorHapus("");
+    setSedangMemproses(true);
+    setErrorAksi("");
 
     try {
-      // Periksa kembali identitas pengguna.
       const {
         data: { user },
-        error: authError,
+        error: errorAuth,
       } = await supabase.auth.getUser();
 
-      if (
-        authError ||
-        !user ||
-        user.id !== ADMIN_USER_ID
-      ) {
-        throw new Error(
-          "Akses ditolak. Hanya admin yang " +
-            "dapat menghapus Surat Pengantar."
-        );
+      if (errorAuth || user?.id !== ADMIN_USER_ID) {
+        throw new Error("Tindakan ini hanya dapat dilakukan oleh admin.");
       }
 
-      // RLS Supabase tetap memvalidasi izin DELETE.
-      const {
-        data,
-        error: errorDelete,
-      } = await supabase
+      if (aksi === "hapus") {
+        const { data, error: errorHapus } = await supabase
+          .from("surat_pengantar")
+          .delete()
+          .eq("id", id)
+          .eq("is_archived", false)
+          .select("id");
+
+        if (errorHapus) throw new Error(errorHapus.message);
+
+        if (!data || data.length !== 1) {
+          throw new Error(
+            "Surat tidak berhasil dihapus. Muat ulang halaman dan cek status surat."
+          );
+        }
+
+        setAksi(null);
+        router.replace("/surat-pengantar");
+        return;
+      }
+
+      const arsipkan = aksi === "arsipkan";
+
+      const { data, error: errorUpdate } = await supabase
         .from("surat_pengantar")
-        .delete()
-        .eq("id", surat.id)
-        .select("id");
+        .update({ is_archived: arsipkan })
+        .eq("id", id)
+        .eq("is_archived", !arsipkan)
+        .select(KOLOM_SURAT)
+        .maybeSingle();
 
-      if (errorDelete) {
-        throw new Error(errorDelete.message);
-      }
+      if (errorUpdate) throw new Error(errorUpdate.message);
 
-      // Memastikan satu record benar-benar terhapus.
-      if (!data || data.length !== 1) {
+      if (!data || data.is_archived !== arsipkan) {
         throw new Error(
-          "Penghapusan tidak terkonfirmasi. " +
-            "Periksa izin DELETE dan SELECT " +
-            "pada Supabase."
+          "Perubahan status belum terkonfirmasi. Muat ulang halaman dan cek status surat."
         );
       }
 
-      // ON DELETE CASCADE menghapus detail terkait.
-      setKonfirmasiHapus(false);
-
-      router.push("/surat-pengantar");
-      router.refresh();
+      setSurat(data);
+      setAksi(null);
+      setPesanSukses(
+        arsipkan
+          ? "Surat Pengantar berhasil diarsipkan."
+          : "Surat Pengantar berhasil dipulihkan."
+      );
     } catch (err) {
-      setErrorHapus(
+      setErrorAksi(
         err instanceof Error
           ? err.message
-          : "Terjadi kesalahan saat menghapus Surat Pengantar."
+          : "Terjadi kesalahan saat memproses Surat Pengantar."
       );
     } finally {
-      setSedangMenghapus(false);
+      setSedangMemproses(false);
     }
   }
 
-  // Loading data
   if (loading) {
     return (
       <main className="min-h-screen bg-slate-100 p-8 text-gray-900">
-        <p>Memuat detail Surat Pengantar...</p>
+        <p role="status">Memuat detail Surat Pengantar...</p>
       </main>
     );
   }
 
-  // Error data
   if (error || !surat) {
     return (
       <main className="min-h-screen bg-slate-100 p-8 text-gray-900">
         <div className="mx-auto max-w-5xl rounded-xl bg-white p-6 shadow-sm">
-          <p className="text-red-600">
-            {error ||
-              "Data Surat Pengantar tidak ditemukan."}
+          <p role="alert" className="text-red-600">
+            {error || "Data Surat Pengantar tidak ditemukan."}
           </p>
-
           <Link
             href="/surat-pengantar"
             className="mt-4 inline-block text-blue-700"
@@ -304,173 +255,118 @@ export default function DetailSuratPengantarPage() {
     );
   }
 
+  const informasiSurat = [
+    { label: "Nomor Surat", nilai: surat.nomor_surat },
+    {
+      label: "Tanggal Pengiriman",
+      nilai: formatTanggal(surat.tanggal_pengiriman),
+    },
+    { label: "Dari", nilai: surat.dari || "-" },
+    { label: "Tujuan", nilai: surat.tujuan || "-" },
+    { label: "Petugas", nilai: surat.petugas || "-" },
+  ];
+
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-8 text-gray-900">
       <div className="mx-auto max-w-6xl">
-
-        {/* HEADER */}
         <header className="mb-6 rounded-xl bg-[#183B63] p-6 text-white shadow">
-          <h1 className="text-xl font-bold">
-            PT Pandawa Jaya Transindo
-          </h1>
-
+          <h1 className="text-xl font-bold">PT Pandawa Jaya Transindo</h1>
           <p className="mt-1 text-sm text-blue-100">
             Sistem Administrasi Pengiriman Barang
           </p>
         </header>
 
-        {/* DETAIL SURAT PENGANTAR */}
         <section className="rounded-xl bg-white p-6 shadow-sm sm:p-8">
           <div className="mb-6 border-b border-gray-200 pb-5">
-            <h2 className="text-2xl font-bold">
-              Detail Surat Pengantar
-            </h2>
-
+            <h2 className="text-2xl font-bold">Detail Surat Pengantar</h2>
             <p className="mt-1 text-sm text-gray-500">
               Informasi Surat Pengantar dan daftar kiriman.
             </p>
           </div>
 
-          {/* INFORMASI SURAT */}
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mb-6 flex flex-wrap items-center gap-3">
+            <span
+              className={`rounded-full px-3 py-1 text-sm font-semibold ${
+                surat.is_archived
+                  ? "bg-slate-200 text-slate-800"
+                  : "bg-green-100 text-green-800"
+              }`}
+            >
+              {surat.is_archived ? "Diarsipkan" : "Aktif"}
+            </span>
 
-            <div>
-              <p className="text-sm text-gray-500">
-                Nomor Surat
+            {surat.is_archived && surat.archived_at && (
+              <p className="text-sm text-gray-600">
+                {formatWaktuArsip.format(new Date(surat.archived_at))} WIB
               </p>
-
-              <p className="mt-1 font-semibold">
-                {surat.nomor_surat}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-sm text-gray-500">
-                Tanggal Pengiriman
-              </p>
-
-              <p className="mt-1 font-semibold">
-                {formatTanggal(
-                  surat.tanggal_pengiriman
-                )}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-sm text-gray-500">
-                Dari
-              </p>
-
-              <p className="mt-1 font-semibold">
-                {surat.dari || "-"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-sm text-gray-500">
-                Tujuan
-              </p>
-
-              <p className="mt-1 font-semibold">
-                {surat.tujuan || "-"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-sm text-gray-500">
-                Petugas
-              </p>
-
-              <p className="mt-1 font-semibold">
-                {surat.petugas || "-"}
-              </p>
-            </div>
-
+            )}
           </div>
 
-          {/* DAFTAR KIRIMAN */}
-          <div className="mt-8 border-t border-gray-200 pt-6">
+          {pesanSukses && (
+            <p
+              role="status"
+              className="mb-6 rounded-lg bg-green-50 p-3 text-sm text-green-800"
+            >
+              {pesanSukses}
+            </p>
+          )}
 
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-bold">
-                  Daftar Kiriman
-                </h3>
-
-                <p className="mt-1 text-sm text-gray-500">
-                  Daftar STT yang tercatat pada
-                  Surat Pengantar ini.
-                </p>
+          <dl className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {informasiSurat.map(({ label, nilai }) => (
+              <div key={label}>
+                <dt className="text-sm text-gray-500">{label}</dt>
+                <dd className="mt-1 font-semibold">{nilai}</dd>
               </div>
+            ))}
+          </dl>
 
+          <div className="mt-8 border-t border-gray-200 pt-6">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-lg font-bold">Daftar Kiriman</h3>
               <p className="text-sm text-gray-500">
                 Total kiriman: {kiriman.length}
               </p>
             </div>
 
             <div className="overflow-x-auto rounded-lg border border-gray-200">
-              <table className="w-full min-w-[1050px] text-left text-sm">
-
+              <table className="w-full min-w-262.5 text-left text-sm">
                 <thead className="bg-slate-100 text-gray-700">
                   <tr>
-                    <th className="px-4 py-3">No.</th>
-                    <th className="px-4 py-3">STT</th>
-                    <th className="px-4 py-3">Penerima</th>
-                    <th className="px-4 py-3">Pengirim</th>
-                    <th className="px-4 py-3">Colli</th>
-                    <th className="px-4 py-3">Berat</th>
-                    <th className="px-4 py-3">Biaya</th>
-                    <th className="px-4 py-3">
-                      Keterangan
-                    </th>
+                    {[
+                      "No.",
+                      "STT",
+                      "Penerima",
+                      "Pengirim",
+                      "Colli",
+                      "Berat",
+                      "Biaya",
+                      "Keterangan",
+                    ].map((kolom) => (
+                      <th key={kolom} scope="col" className="px-4 py-3">
+                        {kolom}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-gray-200">
                   {kiriman.map((item, index) => (
-                    <tr
-                      key={item.id}
-                      className="hover:bg-blue-50"
-                    >
-                      <td className="px-4 py-3">
-                        {index + 1}
-                      </td>
-
-                      <td className="px-4 py-3 font-medium">
-                        {item.stt || "-"}
-                      </td>
-
-                      <td className="px-4 py-3">
-                        {item.penerima || "-"}
-                      </td>
-
-                      <td className="px-4 py-3">
-                        {item.pengirim || "-"}
-                      </td>
-
-                      <td className="px-4 py-3">
-                        {item.jumlah_colli ?? "-"}
-                      </td>
-
-                      <td className="px-4 py-3">
-                        {item.berat ?? "-"}
-                      </td>
-
+                    <tr key={item.id} className="hover:bg-blue-50">
+                      <td className="px-4 py-3">{index + 1}</td>
+                      <td className="px-4 py-3 font-medium">{item.stt || "-"}</td>
+                      <td className="px-4 py-3">{item.penerima || "-"}</td>
+                      <td className="px-4 py-3">{item.pengirim || "-"}</td>
+                      <td className="px-4 py-3">{item.jumlah_colli ?? "-"}</td>
+                      <td className="px-4 py-3">{item.berat ?? "-"}</td>
                       <td className="whitespace-nowrap px-4 py-3">
                         {item.biaya === null
                           ? "-"
-                          : `Rp ${formatRupiah(
-                              item.biaya
-                            )}`}
+                          : `Rp ${formatAngka.format(item.biaya)}`}
                       </td>
-
-                      <td className="px-4 py-3">
-                        {item.keterangan || "-"}
-                      </td>
+                      <td className="px-4 py-3">{item.keterangan || "-"}</td>
                     </tr>
                   ))}
                 </tbody>
-
               </table>
 
               {kiriman.length === 0 && (
@@ -481,22 +377,19 @@ export default function DetailSuratPengantarPage() {
             </div>
           </div>
 
-          {/* TOMBOL AKSI */}
           <div className="mt-6 flex flex-wrap justify-end gap-3">
-
-            <Link
-              href="/surat-pengantar"
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
+            <Link href="/surat-pengantar" className={tombolNetral}>
               Kembali
             </Link>
 
-            <Link
-              href={`/surat-pengantar/${surat.id}/edit`}
-              className="rounded-lg bg-yellow-500 px-4 py-2 text-sm font-semibold text-white hover:bg-yellow-600"
-            >
-              Edit
-            </Link>
+            {!surat.is_archived && (
+              <Link
+                href={`/surat-pengantar/${surat.id}/edit`}
+                className="rounded-lg bg-yellow-500 px-4 py-2 text-sm font-semibold text-white hover:bg-yellow-600"
+              >
+                Edit
+              </Link>
+            )}
 
             <Link
               href={`/surat-pengantar/${surat.id}/print`}
@@ -505,113 +398,79 @@ export default function DetailSuratPengantarPage() {
               Print Surat Pengantar
             </Link>
 
-            {/* TOMBOL HAPUS HANYA UNTUK ADMIN */}
-            {!checkingAdmin && isAdmin && (
+            {isAdmin && (
               <button
                 type="button"
-                onClick={bukaKonfirmasiHapus}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                className={tombolBiru}
+                disabled={sedangMemproses}
+                onClick={() =>
+                  bukaKonfirmasi(surat.is_archived ? "pulihkan" : "arsipkan")
+                }
               >
-                Hapus Surat Pengantar
+                {surat.is_archived ? labelAksi.pulihkan : labelAksi.arsipkan}
+              </button>
+            )}
+
+            {isAdmin && !surat.is_archived && (
+              <button
+                type="button"
+                className={tombolMerah}
+                disabled={sedangMemproses}
+                onClick={() => bukaKonfirmasi("hapus")}
+              >
+                {labelAksi.hapus}
               </button>
             )}
           </div>
-
         </section>
       </div>
 
-      {/* MODAL KONFIRMASI KHUSUS ADMIN */}
-      {konfirmasiHapus && surat && isAdmin && (
+      {isAdmin && aksi && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <div
             role="alertdialog"
             aria-modal="true"
-            aria-labelledby="judul-hapus-surat"
-            aria-describedby="deskripsi-hapus-surat"
-            className="w-full max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-xl"
+            aria-labelledby="judul-konfirmasi"
+            aria-describedby="deskripsi-konfirmasi"
+            className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
           >
-
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
-              <span
-                className="text-2xl font-bold text-red-600"
-                aria-hidden="true"
-              >
-                !
-              </span>
-            </div>
-
-            <h3
-              id="judul-hapus-surat"
-              className="mb-3 text-xl font-bold"
-            >
-              Konfirmasi Hapus Surat Pengantar
+            <h3 id="judul-konfirmasi" className="text-xl font-bold">
+              {labelAksi[aksi]}?
             </h3>
-
-            <p
-              id="deskripsi-hapus-surat"
-              className="text-sm leading-6 text-gray-600"
-            >
-              Apakah Anda yakin ingin menghapus
-              Surat Pengantar nomor{" "}
-              <strong className="text-gray-900">
-                {surat.nomor_surat}
-              </strong>
-              ?
-            </p>
-
-            {/* JUMLAH DETAIL KIRIMAN */}
-            <div className="mt-4 rounded-lg bg-slate-100 p-3">
-              <p className="text-sm text-gray-700">
-                Jumlah detail kiriman yang tercatat:
-                <strong> {kiriman.length} kiriman</strong>
+            <div id="deskripsi-konfirmasi" className="mt-3 space-y-2 text-sm">
+              <p>
+                Surat nomor <strong>{surat.nomor_surat}</strong> berisi{" "}
+                <strong>{kiriman.length} kiriman</strong>.
+              </p>
+              <p className={aksi === "hapus" ? "text-red-700" : "text-gray-600"}>
+                {deskripsiAksi[aksi]}
               </p>
             </div>
 
-            {/* PERINGATAN */}
-            <div className="mt-3 rounded-lg bg-red-50 p-3">
-              <p className="text-sm leading-6 text-red-700">
-                Perhatian: Surat Pengantar beserta
-                seluruh detail kiriman yang terkait
-                akan dihapus secara permanen dari
-                database. Tindakan ini tidak dapat
-                dibatalkan.
+            {errorAksi && (
+              <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                {errorAksi}
               </p>
-            </div>
-
-            {/* ERROR PENGHAPUSAN */}
-            {errorHapus && (
-              <div
-                role="alert"
-                className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-              >
-                Gagal menghapus Surat Pengantar:{" "}
-                {errorHapus}
-              </div>
             )}
 
-            {/* TOMBOL KONFIRMASI */}
             <div className="mt-6 flex flex-wrap justify-end gap-3">
-
               <button
                 type="button"
-                onClick={batalHapus}
-                disabled={sedangMenghapus}
-                className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className={tombolNetral}
+                disabled={sedangMemproses}
+                onClick={() => setAksi(null)}
               >
                 Batal
               </button>
 
               <button
                 type="button"
-                onClick={hapusSuratPengantar}
-                disabled={sedangMenghapus}
-                className="rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className={aksi === "hapus" ? tombolMerah : tombolBiru}
+                disabled={sedangMemproses}
+                onClick={prosesAksi}
               >
-                {sedangMenghapus
-                  ? "Menghapus..."
-                  : "Ya, Hapus Surat Pengantar"}
+                {sedangMemproses ? "Memproses..." : `Ya, ${labelAksi[aksi]}`}
               </button>
-
             </div>
           </div>
         </div>

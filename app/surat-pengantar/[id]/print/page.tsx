@@ -200,7 +200,7 @@ export default function PrintSuratPengantarPage() {
           </div>
 
           <div className="nama-perusahaan">
-            PT. OSAKA JAYA TRANSINDO
+              PT. PANDAWA JAYA TRANSINDO
           </div>
         </div>
 

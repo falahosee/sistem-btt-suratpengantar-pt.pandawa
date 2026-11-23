@@ -44,6 +44,12 @@ export default function TambahSuratPengantarPage() {
   const [menyimpan, setMenyimpan] = useState(false);
   const [pesanError, setPesanError] = useState("");
 
+  const inputStyle =
+    "mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100";
+
+  const labelStyle =
+    "block text-sm font-medium text-gray-700";
+
   function ubahForm(
     e: React.ChangeEvent<HTMLInputElement>
   ) {
@@ -56,10 +62,12 @@ export default function TambahSuratPengantarPage() {
   }
 
   function tambahKiriman() {
+    setPesanError("");
+
     setDaftarKiriman((sebelumnya) => [
       ...sebelumnya,
       {
-        id: Date.now(),
+        id: Date.now() + Math.random(),
         stt: "",
         penerima: "",
         pengirim: "",
@@ -76,6 +84,8 @@ export default function TambahSuratPengantarPage() {
     field: keyof Omit<Kiriman, "id">,
     value: string
   ) {
+    setPesanError("");
+
     setDaftarKiriman((sebelumnya) =>
       sebelumnya.map((item) =>
         item.id === id
@@ -94,9 +104,30 @@ export default function TambahSuratPengantarPage() {
       return;
     }
 
+    setPesanError("");
+
     setDaftarKiriman((sebelumnya) =>
       sebelumnya.filter((item) => item.id !== id)
     );
+  }
+
+  // Memeriksa STT yang sama dalam satu Surat Pengantar.
+  function cariSTTDuplikat() {
+    const sttTerdaftar = new Set<string>();
+
+    for (const item of daftarKiriman) {
+      const stt = item.stt.trim().toUpperCase();
+
+      if (!stt) continue;
+
+      if (sttTerdaftar.has(stt)) {
+        return item.stt.trim();
+      }
+
+      sttTerdaftar.add(stt);
+    }
+
+    return null;
   }
 
   async function simpanSuratPengantar(
@@ -104,107 +135,136 @@ export default function TambahSuratPengantarPage() {
   ) {
     e.preventDefault();
 
+    if (menyimpan) return;
+
     setPesanError("");
 
+    // VALIDASI 1: Kelengkapan rincian kiriman.
     const kirimanTidakLengkap = daftarKiriman.some(
       (item) =>
         !item.stt.trim() ||
         !item.penerima.trim() ||
         !item.pengirim.trim() ||
         !item.jumlah_colli ||
+        !Number.isInteger(Number(item.jumlah_colli)) ||
         Number(item.jumlah_colli) <= 0
     );
 
     if (kirimanTidakLengkap) {
-      alert(
-        "Lengkapi STT, penerima, pengirim, dan jumlah colli pada setiap kiriman."
+      setPesanError(
+        "Lengkapi STT, penerima, pengirim, dan jumlah colli yang valid pada setiap kiriman."
+      );
+      return;
+    }
+
+    // VALIDASI 2: STT tidak boleh duplikat dalam surat yang sama.
+    const sttDuplikat = cariSTTDuplikat();
+
+    if (sttDuplikat) {
+      setPesanError(
+        `Nomor STT "${sttDuplikat}" digunakan lebih dari satu kali. ` +
+          "Setiap kiriman dalam satu Surat Pengantar harus memiliki nomor STT yang berbeda."
+      );
+      return;
+    }
+
+    // VALIDASI 3: Berat dan biaya tidak boleh negatif/tidak valid.
+    const angkaTidakValid = daftarKiriman.some(
+      (item) =>
+        (item.berat !== "" &&
+          (!Number.isFinite(Number(item.berat)) ||
+            Number(item.berat) < 0)) ||
+        (item.biaya !== "" &&
+          (!Number.isSafeInteger(Number(item.biaya)) ||
+            Number(item.biaya) < 0))
+    );
+
+    if (angkaTidakValid) {
+      setPesanError(
+        "Periksa kembali nilai berat dan biaya. Nilai tidak boleh negatif, dan biaya harus berupa bilangan bulat."
       );
       return;
     }
 
     setMenyimpan(true);
 
-    const { data: surat, error: errorSurat } = await supabase
-      .from("surat_pengantar")
-      .insert({
-        dari: form.dari.trim() || null,
-        tujuan: form.tujuan.trim() || null,
-        tanggal_pengiriman: form.tanggal_pengiriman,
-        petugas: form.petugas.trim() || null,
-      })
-      .select("id, nomor_surat")
-      .single();
+    try {
+      // Simpan data utama Surat Pengantar.
+      const { data: surat, error: errorSurat } = await supabase
+        .from("surat_pengantar")
+        .insert({
+          dari: form.dari.trim() || null,
+          tujuan: form.tujuan.trim() || null,
+          tanggal_pengiriman: form.tanggal_pengiriman,
+          petugas: form.petugas.trim() || null,
+        })
+        .select("id, nomor_surat")
+        .single();
 
-    if (errorSurat || !surat) {
+      if (errorSurat || !surat) {
+        setPesanError(
+          "Gagal menyimpan Surat Pengantar: " +
+            (errorSurat?.message || "Data tidak ditemukan.")
+        );
+        return;
+      }
+
+      const detailKiriman = daftarKiriman.map((item) => ({
+        surat_pengantar_id: surat.id,
+        stt: item.stt.trim(),
+        penerima: item.penerima.trim(),
+        pengirim: item.pengirim.trim(),
+        jumlah_colli: Number(item.jumlah_colli),
+        berat:
+          item.berat.trim() === ""
+            ? null
+            : Number(item.berat),
+        biaya:
+          item.biaya.trim() === ""
+            ? null
+            : Number(item.biaya),
+        keterangan: item.keterangan.trim() || null,
+      }));
+
+      // Simpan rincian kiriman.
+      const { error: errorDetail } = await supabase
+        .from("surat_pengantar_detail")
+        .insert(detailKiriman);
+
+      if (errorDetail) {
+        setPesanError(
+          "Surat Pengantar utama berhasil dibuat, tetapi rincian kiriman gagal disimpan: " +
+            errorDetail.message +
+            ". Jangan membuat ulang surat sebelum memeriksa data."
+        );
+        return;
+      }
+
+      alert(
+        `Surat Pengantar berhasil disimpan!\nNomor Surat: ${surat.nomor_surat}`
+      );
+
+      router.push("/surat-pengantar");
+      router.refresh();
+    } catch (error) {
+      setPesanError(
+        "Terjadi kesalahan saat menyimpan: " +
+          (error instanceof Error
+            ? error.message
+            : "Kesalahan tidak diketahui.")
+      );
+    } finally {
       setMenyimpan(false);
-
-      setPesanError(
-        "Gagal menyimpan Surat Pengantar: " +
-          (errorSurat?.message || "Data tidak ditemukan.")
-      );
-
-      return;
     }
-
-    const detailKiriman = daftarKiriman.map((item) => ({
-      surat_pengantar_id: surat.id,
-      stt: item.stt.trim(),
-      penerima: item.penerima.trim(),
-      pengirim: item.pengirim.trim(),
-      jumlah_colli: Number(item.jumlah_colli),
-
-      berat:
-        item.berat === ""
-          ? null
-          : Number(item.berat),
-
-      biaya:
-        item.biaya === ""
-          ? null
-          : Number(item.biaya),
-
-      keterangan:
-        item.keterangan.trim() || null,
-    }));
-
-    const { error: errorDetail } = await supabase
-      .from("surat_pengantar_detail")
-      .insert(detailKiriman);
-
-    setMenyimpan(false);
-
-    if (errorDetail) {
-      setPesanError(
-        "Surat Pengantar tersimpan, tetapi detail kiriman gagal disimpan: " +
-          errorDetail.message
-      );
-
-      return;
-    }
-
-    alert(
-      `Surat Pengantar berhasil disimpan!\nNomor Surat: ${surat.nomor_surat}`
-    );
-
-    router.push("/surat-pengantar");
-    router.refresh();
   }
-
-  const inputStyle =
-    "mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100";
-
-  const labelStyle =
-    "block text-sm font-medium text-gray-700";
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-8 text-gray-900">
       <div className="mx-auto max-w-7xl">
-
         <header className="mb-6 rounded-xl bg-[#183B63] p-6 text-white shadow">
           <h1 className="text-xl font-bold">
             PT Pandawa Jaya Transindo
           </h1>
-
           <p className="mt-1 text-sm text-blue-100">
             Sistem Administrasi Pengiriman Barang
           </p>
@@ -218,14 +278,16 @@ export default function TambahSuratPengantarPage() {
             <h2 className="text-2xl font-bold">
               Input Surat Pengantar
             </h2>
-
             <p className="mt-1 text-sm text-gray-500">
               Isi data Surat Pengantar sesuai dokumen fisik perusahaan.
             </p>
           </div>
 
           {pesanError && (
-            <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <div
+              role="alert"
+              className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+            >
               {pesanError}
             </div>
           )}
@@ -236,19 +298,16 @@ export default function TambahSuratPengantarPage() {
             </h3>
 
             <div className="grid gap-5 sm:grid-cols-2">
-
               <div>
                 <label className={labelStyle}>
                   Nomor Surat
                 </label>
-
                 <input
                   type="text"
                   value="Otomatis"
                   readOnly
                   className="mt-2 w-full cursor-not-allowed rounded-lg border border-gray-300 bg-gray-100 px-3 py-3 text-sm text-gray-500"
                 />
-
                 <p className="mt-1 text-xs text-gray-500">
                   Nomor Surat Pengantar dibuat otomatis saat data disimpan.
                 </p>
@@ -258,7 +317,6 @@ export default function TambahSuratPengantarPage() {
                 <label className={labelStyle}>
                   Tanggal Pengiriman *
                 </label>
-
                 <input
                   type="date"
                   name="tanggal_pengiriman"
@@ -273,7 +331,6 @@ export default function TambahSuratPengantarPage() {
                 <label className={labelStyle}>
                   Dari
                 </label>
-
                 <input
                   type="text"
                   name="dari"
@@ -288,7 +345,6 @@ export default function TambahSuratPengantarPage() {
                 <label className={labelStyle}>
                   Tujuan
                 </label>
-
                 <input
                   type="text"
                   name="tujuan"
@@ -303,7 +359,6 @@ export default function TambahSuratPengantarPage() {
                 <label className={labelStyle}>
                   Petugas
                 </label>
-
                 <input
                   type="text"
                   name="petugas"
@@ -318,12 +373,10 @@ export default function TambahSuratPengantarPage() {
 
           <div className="border-t border-gray-200 pt-6">
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-
               <div>
                 <h3 className="text-lg font-semibold">
                   Daftar Kiriman
                 </h3>
-
                 <p className="mt-1 text-sm text-gray-500">
                   Tambahkan data STT sesuai Surat Pengantar.
                 </p>
@@ -345,7 +398,6 @@ export default function TambahSuratPengantarPage() {
                   className="rounded-lg border border-gray-200 bg-slate-50 p-4"
                 >
                   <div className="mb-4 flex items-center justify-between">
-
                     <h4 className="font-semibold">
                       Kiriman {index + 1}
                     </h4>
@@ -361,12 +413,10 @@ export default function TambahSuratPengantarPage() {
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-
                     <div>
                       <label className={labelStyle}>
                         STT *
                       </label>
-
                       <input
                         type="text"
                         value={item.stt}
@@ -387,7 +437,6 @@ export default function TambahSuratPengantarPage() {
                       <label className={labelStyle}>
                         Penerima *
                       </label>
-
                       <input
                         type="text"
                         value={item.penerima}
@@ -408,7 +457,6 @@ export default function TambahSuratPengantarPage() {
                       <label className={labelStyle}>
                         Pengirim *
                       </label>
-
                       <input
                         type="text"
                         value={item.pengirim}
@@ -429,7 +477,6 @@ export default function TambahSuratPengantarPage() {
                       <label className={labelStyle}>
                         Jumlah Colli *
                       </label>
-
                       <input
                         type="number"
                         min="1"
@@ -451,7 +498,6 @@ export default function TambahSuratPengantarPage() {
                       <label className={labelStyle}>
                         Berat
                       </label>
-
                       <input
                         type="number"
                         min="0"
@@ -473,7 +519,6 @@ export default function TambahSuratPengantarPage() {
                       <label className={labelStyle}>
                         Biaya
                       </label>
-
                       <input
                         type="number"
                         min="0"
@@ -495,7 +540,6 @@ export default function TambahSuratPengantarPage() {
                       <label className={labelStyle}>
                         Keterangan
                       </label>
-
                       <input
                         type="text"
                         value={item.keterangan}
@@ -521,7 +565,6 @@ export default function TambahSuratPengantarPage() {
           </div>
 
           <div className="mt-8 flex flex-wrap justify-end gap-3 border-t border-gray-200 pt-6">
-
             <Link
               href="/surat-pengantar"
               className="rounded-lg border border-gray-300 px-5 py-3 text-sm font-medium hover:bg-gray-50"

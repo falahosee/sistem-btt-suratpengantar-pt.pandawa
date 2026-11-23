@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -16,11 +16,25 @@ type Kiriman = {
   keterangan: string;
 };
 
+type FormSurat = {
+  nomor_surat: string;
+  dari: string;
+  tujuan: string;
+  tanggal_pengiriman: string;
+  petugas: string;
+};
+
+const inputStyle =
+  "mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100";
+
 export default function EditSuratPengantarPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const idSurat = Number(id);
+  const idBaru = useRef(-1);
+  const idDetailAwal = useRef<number[]>([]);
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<FormSurat>({
     nomor_surat: "",
     dari: "",
     tujuan: "",
@@ -34,22 +48,39 @@ export default function EditSuratPengantarPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    let aktif = true;
+
     async function ambilData() {
       setLoading(true);
       setError("");
 
+      if (!Number.isSafeInteger(idSurat) || idSurat <= 0) {
+        setError("ID Surat Pengantar tidak valid.");
+        setLoading(false);
+        return;
+      }
+
       const { data: surat, error: errorSurat } = await supabase
         .from("surat_pengantar")
         .select(
-          "id, nomor_surat, dari, tujuan, tanggal_pengiriman, petugas"
+          "id, nomor_surat, dari, tujuan, tanggal_pengiriman, petugas, is_archived"
         )
-        .eq("id", id)
+        .eq("id", idSurat)
         .single();
+
+      if (!aktif) return;
 
       if (errorSurat || !surat) {
         setError(
-          errorSurat?.message ||
-            "Data Surat Pengantar tidak ditemukan."
+          errorSurat?.message || "Surat Pengantar tidak ditemukan."
+        );
+        setLoading(false);
+        return;
+      }
+
+      if (surat.is_archived) {
+        setError(
+          "Surat Pengantar yang diarsipkan tidak dapat diedit. Pulihkan terlebih dahulu."
         );
         setLoading(false);
         return;
@@ -60,8 +91,10 @@ export default function EditSuratPengantarPage() {
         .select(
           "id, stt, penerima, pengirim, jumlah_colli, berat, biaya, keterangan"
         )
-        .eq("surat_pengantar_id", id)
+        .eq("surat_pengantar_id", idSurat)
         .order("id", { ascending: true });
+
+      if (!aktif) return;
 
       if (errorDetail) {
         setError(errorDetail.message);
@@ -77,38 +110,44 @@ export default function EditSuratPengantarPage() {
         petugas: surat.petugas || "",
       });
 
-      setDaftarKiriman(
-        (detail ?? []).map((item) => ({
-          id: item.id,
-          stt: item.stt || "",
-          penerima: item.penerima || "",
-          pengirim: item.pengirim || "",
-          jumlah_colli:
-            item.jumlah_colli === null
-              ? ""
-              : String(item.jumlah_colli),
-          berat:
-            item.berat === null
-              ? ""
-              : String(item.berat),
-          biaya:
-            item.biaya === null
-              ? ""
-              : String(item.biaya),
-          keterangan: item.keterangan || "",
-        }))
-      );
+      const rincian = (detail ?? []).map((item) => ({
+        id: item.id,
+        stt: item.stt || "",
+        penerima: item.penerima || "",
+        pengirim: item.pengirim || "",
+        jumlah_colli:
+          item.jumlah_colli == null
+            ? ""
+            : String(item.jumlah_colli),
+        berat:
+          item.berat == null
+            ? ""
+            : String(item.berat),
+        biaya:
+          item.biaya == null
+            ? ""
+            : String(item.biaya),
+        keterangan: item.keterangan || "",
+      }));
 
+      idDetailAwal.current = rincian.map((item) => item.id);
+      setDaftarKiriman(rincian);
       setLoading(false);
     }
 
-    ambilData();
-  }, [id]);
+    void ambilData();
+
+    return () => {
+      aktif = false;
+    };
+  }, [idSurat]);
 
   function ubahForm(
     e: React.ChangeEvent<HTMLInputElement>
   ) {
     const { name, value } = e.target;
+
+    setError("");
 
     setForm((sebelumnya) => ({
       ...sebelumnya,
@@ -121,23 +160,26 @@ export default function EditSuratPengantarPage() {
     field: keyof Omit<Kiriman, "id">,
     value: string
   ) {
+    setError("");
+
     setDaftarKiriman((sebelumnya) =>
       sebelumnya.map((item) =>
         item.id === idKiriman
-          ? {
-              ...item,
-              [field]: value,
-            }
+          ? { ...item, [field]: value }
           : item
       )
     );
   }
 
   function tambahKiriman() {
+    setError("");
+
+    const idSementara = idBaru.current--;
+
     setDaftarKiriman((sebelumnya) => [
       ...sebelumnya,
       {
-        id: -Date.now(),
+        id: idSementara,
         stt: "",
         penerima: "",
         pengirim: "",
@@ -150,10 +192,12 @@ export default function EditSuratPengantarPage() {
   }
 
   function hapusKiriman(idKiriman: number) {
-    if (daftarKiriman.length === 1) {
-      alert("Minimal harus ada satu kiriman.");
+    if (daftarKiriman.length <= 1) {
+      setError("Minimal harus ada satu kiriman.");
       return;
     }
+
+    setError("");
 
     setDaftarKiriman((sebelumnya) =>
       sebelumnya.filter(
@@ -162,127 +206,265 @@ export default function EditSuratPengantarPage() {
     );
   }
 
+  function validasi(): string | null {
+    if (daftarKiriman.length === 0) {
+      return "Minimal harus ada satu kiriman.";
+    }
+
+    if (!form.tanggal_pengiriman) {
+      return "Tanggal Pengiriman wajib diisi.";
+    }
+
+    const sttTerdaftar = new Set<string>();
+
+    for (const item of daftarKiriman) {
+      if (
+        !item.stt.trim() ||
+        !item.penerima.trim() ||
+        !item.pengirim.trim()
+      ) {
+        return "STT, penerima, dan pengirim harus diisi pada setiap kiriman.";
+      }
+
+      const jumlah = Number(item.jumlah_colli);
+
+      if (
+        !item.jumlah_colli.trim() ||
+        !Number.isSafeInteger(jumlah) ||
+        jumlah <= 0
+      ) {
+        return "Jumlah colli harus berupa bilangan bulat lebih dari nol.";
+      }
+
+      // Validasi STT duplikat.
+      const sttNormal = item.stt.trim().toUpperCase();
+
+      if (sttTerdaftar.has(sttNormal)) {
+        return (
+          `STT "${item.stt.trim()}" digunakan lebih dari satu kali. ` +
+          "Setiap kiriman harus memiliki STT berbeda."
+        );
+      }
+
+      sttTerdaftar.add(sttNormal);
+
+      if (
+        item.berat.trim() &&
+        (
+          !Number.isFinite(Number(item.berat)) ||
+          Number(item.berat) < 0
+        )
+      ) {
+        return "Berat harus berupa angka yang tidak negatif.";
+      }
+
+      if (
+        item.biaya.trim() &&
+        (
+          !Number.isSafeInteger(Number(item.biaya)) ||
+          Number(item.biaya) < 0
+        )
+      ) {
+        return "Biaya harus berupa bilangan bulat yang tidak negatif.";
+      }
+    }
+
+    return null;
+  }
+
   async function simpanPerubahan(
     e: React.FormEvent<HTMLFormElement>
   ) {
     e.preventDefault();
 
-    const kirimanTidakLengkap = daftarKiriman.some(
-      (item) =>
-        !item.stt.trim() ||
-        !item.penerima.trim() ||
-        !item.pengirim.trim() ||
-        !item.jumlah_colli ||
-        Number(item.jumlah_colli) <= 0
-    );
+    if (menyimpan) return;
 
-    if (kirimanTidakLengkap) {
-      alert(
-        "Lengkapi STT, penerima, pengirim, dan jumlah colli pada setiap kiriman."
-      );
+    const pesan = validasi();
+
+    if (pesan) {
+      setError(pesan);
+      window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
 
     setMenyimpan(true);
     setError("");
 
-    const { error: errorSurat } = await supabase
-      .from("surat_pengantar")
-      .update({
-        dari: form.dari.trim() || null,
-        tujuan: form.tujuan.trim() || null,
-        tanggal_pengiriman: form.tanggal_pengiriman,
-        petugas: form.petugas.trim() || null,
-      })
-      .eq("id", id);
+    try {
+      // Perbarui informasi utama Surat Pengantar.
+      const {
+        data: suratDiperbarui,
+        error: errorSurat,
+      } = await supabase
+        .from("surat_pengantar")
+        .update({
+          dari: form.dari.trim() || null,
+          tujuan: form.tujuan.trim() || null,
+          tanggal_pengiriman:
+            form.tanggal_pengiriman,
+          petugas: form.petugas.trim() || null,
+        })
+        .eq("id", idSurat)
+        .eq("is_archived", false)
+        .select("id");
 
-    if (errorSurat) {
+      if (errorSurat) throw errorSurat;
+
+      if (suratDiperbarui?.length !== 1) {
+        throw new Error(
+          "Surat tidak berhasil diperbarui. Periksa izin akses dan status arsip."
+        );
+      }
+
+      // Perbarui detail lama berdasarkan ID.
+      // Tidak lagi menghapus semua detail lama.
+      for (const item of daftarKiriman.filter(
+        (kiriman) => kiriman.id > 0
+      )) {
+        const dataDetail = {
+          stt: item.stt.trim(),
+          penerima: item.penerima.trim(),
+          pengirim: item.pengirim.trim(),
+          jumlah_colli: Number(item.jumlah_colli),
+          berat:
+            item.berat.trim() === ""
+              ? null
+              : Number(item.berat),
+          biaya:
+            item.biaya.trim() === ""
+              ? null
+              : Number(item.biaya),
+          keterangan:
+            item.keterangan.trim() || null,
+        };
+
+        const {
+          data,
+          error: errorUpdate,
+        } = await supabase
+          .from("surat_pengantar_detail")
+          .update(dataDetail)
+          .eq("id", item.id)
+          .eq("surat_pengantar_id", idSurat)
+          .select("id");
+
+        if (errorUpdate) throw errorUpdate;
+
+        if (data?.length !== 1) {
+          throw new Error(
+            `Detail ID ${item.id} gagal diperbarui. ` +
+            "Periksa kebijakan akses Supabase."
+          );
+        }
+      }
+
+      // Tambahkan hanya detail yang baru dibuat.
+      const kirimanBaru = daftarKiriman.filter(
+        (item) => item.id < 0
+      );
+
+      if (kirimanBaru.length > 0) {
+        const dataBaru = kirimanBaru.map((item) => ({
+          surat_pengantar_id: idSurat,
+          stt: item.stt.trim(),
+          penerima: item.penerima.trim(),
+          pengirim: item.pengirim.trim(),
+          jumlah_colli: Number(item.jumlah_colli),
+          berat:
+            item.berat.trim() === ""
+              ? null
+              : Number(item.berat),
+          biaya:
+            item.biaya.trim() === ""
+              ? null
+              : Number(item.biaya),
+          keterangan:
+            item.keterangan.trim() || null,
+        }));
+
+        const {
+          data,
+          error: errorInsert,
+        } = await supabase
+          .from("surat_pengantar_detail")
+          .insert(dataBaru)
+          .select("id");
+
+        if (errorInsert) throw errorInsert;
+
+        if (data?.length !== dataBaru.length) {
+          throw new Error(
+            "Sebagian detail baru tidak dapat diverifikasi. " +
+            "Periksa database sebelum mengulang penyimpanan."
+          );
+        }
+      }
+
+      // Hapus hanya kiriman yang dihapus dari form.
+      const idSaatIni = new Set(
+        daftarKiriman
+          .filter((item) => item.id > 0)
+          .map((item) => item.id)
+      );
+
+      const idDihapus = idDetailAwal.current.filter(
+        (detailId) => !idSaatIni.has(detailId)
+      );
+
+      if (idDihapus.length > 0) {
+        const {
+          data,
+          error: errorHapus,
+        } = await supabase
+          .from("surat_pengantar_detail")
+          .delete()
+          .eq("surat_pengantar_id", idSurat)
+          .in("id", idDihapus)
+          .select("id");
+
+        if (errorHapus) throw errorHapus;
+
+        if (data?.length !== idDihapus.length) {
+          throw new Error(
+            "Sebagian detail tidak terhapus. " +
+            "Periksa izin DELETE pada Supabase."
+          );
+        }
+      }
+
+      alert("Surat Pengantar berhasil diperbarui!");
+
+      router.push(`/surat-pengantar/${idSurat}`);
+      router.refresh();
+    } catch (err) {
+      setError(
+        "Proses pembaruan belum selesai: " +
+        (
+          err instanceof Error
+            ? err.message
+            : String(err)
+        ) +
+        ". Jangan tekan Simpan berulang kali; periksa data terlebih dahulu."
+      );
+
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } finally {
       setMenyimpan(false);
-
-      setError(
-        "Gagal memperbarui Surat Pengantar: " +
-          errorSurat.message
-      );
-
-      return;
     }
-
-    const { error: errorHapus } = await supabase
-      .from("surat_pengantar_detail")
-      .delete()
-      .eq("surat_pengantar_id", id);
-
-    if (errorHapus) {
-      setMenyimpan(false);
-
-      setError(
-        "Gagal memperbarui detail kiriman: " +
-          errorHapus.message
-      );
-
-      return;
-    }
-
-    const detailBaru = daftarKiriman.map((item) => ({
-      surat_pengantar_id: Number(id),
-      stt: item.stt.trim(),
-      penerima: item.penerima.trim(),
-      pengirim: item.pengirim.trim(),
-      jumlah_colli: Number(item.jumlah_colli),
-
-      berat:
-        item.berat === ""
-          ? null
-          : Number(item.berat),
-
-      biaya:
-        item.biaya === ""
-          ? null
-          : Number(item.biaya),
-
-      keterangan:
-        item.keterangan.trim() || null,
-    }));
-
-    const { error: errorInsert } = await supabase
-      .from("surat_pengantar_detail")
-      .insert(detailBaru);
-
-    setMenyimpan(false);
-
-    if (errorInsert) {
-      setError(
-        "Surat Pengantar diperbarui, tetapi detail kiriman gagal disimpan: " +
-          errorInsert.message
-      );
-
-      return;
-    }
-
-    alert("Surat Pengantar berhasil diperbarui!");
-
-    router.push(`/surat-pengantar/${id}`);
-    router.refresh();
   }
-
-  const inputStyle =
-    "mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100";
-
-  const labelStyle =
-    "block text-sm font-medium text-gray-700";
 
   if (loading) {
     return (
       <main className="min-h-screen bg-slate-100 p-8">
-        <p>Memuat data Surat Pengantar...</p>
+        Memuat data Surat Pengantar...
       </main>
     );
   }
 
-  if (error && daftarKiriman.length === 0) {
+  if (!daftarKiriman.length && error) {
     return (
-      <main className="min-h-screen bg-slate-100 p-8">
-        <p className="text-red-600">{error}</p>
+      <main className="min-h-screen bg-slate-100 p-8 text-red-600">
+        {error}
       </main>
     );
   }
@@ -290,12 +472,10 @@ export default function EditSuratPengantarPage() {
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-8 text-gray-900">
       <div className="mx-auto max-w-7xl">
-
         <header className="mb-6 rounded-xl bg-[#183B63] p-6 text-white shadow">
           <h1 className="text-xl font-bold">
             PT Pandawa Jaya Transindo
           </h1>
-
           <p className="mt-1 text-sm text-blue-100">
             Sistem Administrasi Pengiriman Barang
           </p>
@@ -309,106 +489,82 @@ export default function EditSuratPengantarPage() {
             <h2 className="text-2xl font-bold">
               Edit Surat Pengantar
             </h2>
-
             <p className="mt-1 text-sm text-gray-500">
               Perbarui data Surat Pengantar dan daftar kiriman.
             </p>
           </div>
 
           {error && (
-            <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <div
+              role="alert"
+              className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+            >
               {error}
             </div>
           )}
 
           <div className="grid gap-5 sm:grid-cols-2">
-
             <div>
-              <label className={labelStyle}>
+              <label
+                htmlFor="nomor-surat"
+                className="block text-sm font-medium text-gray-700"
+              >
                 Nomor Surat
               </label>
-
               <input
+                id="nomor-surat"
                 type="text"
                 value={form.nomor_surat}
                 readOnly
-                className="mt-2 w-full cursor-not-allowed rounded-lg border border-gray-300 bg-gray-100 px-3 py-3 text-sm text-gray-600"
+                className="mt-2 w-full rounded-lg border border-gray-300 bg-gray-100 px-3 py-3 text-sm text-gray-600"
               />
-
               <p className="mt-1 text-xs text-gray-500">
-                Nomor Surat Pengantar dibuat otomatis dan tidak dapat diubah.
+                Nomor Surat dibuat otomatis dan tidak dapat diubah.
               </p>
             </div>
 
-            <div>
-              <label className={labelStyle}>
-                Tanggal Pengiriman *
-              </label>
-
-              <input
-                type="date"
-                name="tanggal_pengiriman"
-                value={form.tanggal_pengiriman}
-                onChange={ubahForm}
-                required
-                className={inputStyle}
-              />
-            </div>
-
-            <div>
-              <label className={labelStyle}>
-                Dari
-              </label>
-
-              <input
-                type="text"
-                name="dari"
-                value={form.dari}
-                onChange={ubahForm}
-                className={inputStyle}
-              />
-            </div>
-
-            <div>
-              <label className={labelStyle}>
-                Tujuan
-              </label>
-
-              <input
-                type="text"
-                name="tujuan"
-                value={form.tujuan}
-                onChange={ubahForm}
-                className={inputStyle}
-              />
-            </div>
-
-            <div>
-              <label className={labelStyle}>
-                Petugas
-              </label>
-
-              <input
-                type="text"
-                name="petugas"
-                value={form.petugas}
-                onChange={ubahForm}
-                className={inputStyle}
-              />
-            </div>
+            {(
+              [
+                [
+                  "tanggal_pengiriman",
+                  "Tanggal Pengiriman *",
+                  "date",
+                ],
+                ["dari", "Dari", "text"],
+                ["tujuan", "Tujuan", "text"],
+                ["petugas", "Petugas", "text"],
+              ] as const
+            ).map(([name, label, type]) => (
+              <div key={name}>
+                <label
+                  htmlFor={name}
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  {label}
+                </label>
+                <input
+                  id={name}
+                  type={type}
+                  name={name}
+                  value={form[name]}
+                  onChange={ubahForm}
+                  required={name === "tanggal_pengiriman"}
+                  className={inputStyle}
+                />
+              </div>
+            ))}
           </div>
 
           <div className="mt-8 border-t border-gray-200 pt-6">
-            <div className="mb-5 flex items-center justify-between gap-3">
-
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
               <h3 className="text-lg font-semibold">
                 Daftar Kiriman
               </h3>
-
               <button
                 type="button"
                 onClick={tambahKiriman}
-                className="rounded-lg bg-[#183B63] px-4 py-2 text-sm font-semibold text-white"
+                disabled={menyimpan}
+                className="rounded-lg bg-[#183B63] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
                 + Tambah Kiriman
               </button>
@@ -420,18 +576,17 @@ export default function EditSuratPengantarPage() {
                   key={item.id}
                   className="rounded-lg border border-gray-200 bg-slate-50 p-4"
                 >
-                  <div className="mb-4 flex justify-between">
-
+                  <div className="mb-4 flex items-center justify-between">
                     <h4 className="font-semibold">
                       Kiriman {index + 1}
                     </h4>
-
                     <button
                       type="button"
-                      onClick={() =>
-                        hapusKiriman(item.id)
+                      onClick={() => hapusKiriman(item.id)}
+                      disabled={
+                        menyimpan ||
+                        daftarKiriman.length <= 1
                       }
-                      disabled={daftarKiriman.length === 1}
                       className="text-sm text-red-600 disabled:opacity-40"
                     >
                       Hapus
@@ -439,118 +594,90 @@ export default function EditSuratPengantarPage() {
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-
-                    <input
-                      type="text"
-                      value={item.stt}
-                      onChange={(e) =>
-                        ubahKiriman(
-                          item.id,
-                          "stt",
-                          e.target.value
-                        )
-                      }
-                      placeholder="STT"
-                      required
-                      className={inputStyle}
-                    />
-
-                    <input
-                      type="text"
-                      value={item.penerima}
-                      onChange={(e) =>
-                        ubahKiriman(
-                          item.id,
-                          "penerima",
-                          e.target.value
-                        )
-                      }
-                      placeholder="Penerima"
-                      required
-                      className={inputStyle}
-                    />
-
-                    <input
-                      type="text"
-                      value={item.pengirim}
-                      onChange={(e) =>
-                        ubahKiriman(
-                          item.id,
-                          "pengirim",
-                          e.target.value
-                        )
-                      }
-                      placeholder="Pengirim"
-                      required
-                      className={inputStyle}
-                    />
-
-                    <input
-                      type="number"
-                      value={item.jumlah_colli}
-                      onChange={(e) =>
-                        ubahKiriman(
-                          item.id,
+                    {(
+                      [
+                        ["stt", "STT *", "text", true],
+                        ["penerima", "Penerima *", "text", true],
+                        ["pengirim", "Pengirim *", "text", true],
+                        [
                           "jumlah_colli",
-                          e.target.value
-                        )
-                      }
-                      placeholder="Colli"
-                      required
-                      className={inputStyle}
-                    />
-
-                    <input
-                      type="number"
-                      value={item.berat}
-                      onChange={(e) =>
-                        ubahKiriman(
-                          item.id,
-                          "berat",
-                          e.target.value
-                        )
-                      }
-                      placeholder="Berat"
-                      className={inputStyle}
-                    />
-
-                    <input
-                      type="number"
-                      value={item.biaya}
-                      onChange={(e) =>
-                        ubahKiriman(
-                          item.id,
-                          "biaya",
-                          e.target.value
-                        )
-                      }
-                      placeholder="Biaya"
-                      className={inputStyle}
-                    />
-
-                    <input
-                      type="text"
-                      value={item.keterangan}
-                      onChange={(e) =>
-                        ubahKiriman(
-                          item.id,
+                          "Jumlah Colli *",
+                          "number",
+                          true,
+                        ],
+                        ["berat", "Berat", "number", false],
+                        ["biaya", "Biaya", "number", false],
+                        [
                           "keterangan",
-                          e.target.value
-                        )
-                      }
-                      placeholder="Keterangan"
-                      className={`${inputStyle} md:col-span-2`}
-                    />
+                          "Keterangan",
+                          "text",
+                          false,
+                        ],
+                      ] as const
+                    ).map(
+                      ([field, label, type, required]) => (
+                        <div
+                          key={field}
+                          className={
+                            field === "keterangan"
+                              ? "md:col-span-2"
+                              : ""
+                          }
+                        >
+                          <label
+                            htmlFor={`${item.id}-${field}`}
+                            className="block text-sm font-medium text-gray-700"
+                          >
+                            {label}
+                          </label>
+                          <input
+                            id={`${item.id}-${field}`}
+                            type={type}
+                            value={item[field]}
+                            onChange={(e) =>
+                              ubahKiriman(
+                                item.id,
+                                field,
+                                e.target.value
+                              )
+                            }
+                            placeholder={label.replace(
+                              " *",
+                              ""
+                            )}
+                            required={required}
+                            min={
+                              field === "jumlah_colli"
+                                ? "1"
+                                : type === "number"
+                                  ? "0"
+                                  : undefined
+                            }
+                            step={
+                              field === "berat"
+                                ? "any"
+                                : type === "number"
+                                  ? "1"
+                                  : undefined
+                            }
+                            className={inputStyle}
+                          />
+                        </div>
+                      )
+                    )}
                   </div>
                 </div>
               ))}
             </div>
+
+            <p className="mt-4 text-sm text-gray-500">
+              Total kiriman: {daftarKiriman.length}
+            </p>
           </div>
 
-          <div className="mt-8 flex justify-end gap-3 border-t border-gray-200 pt-6">
-
+          <div className="mt-8 flex flex-wrap justify-end gap-3 border-t border-gray-200 pt-6">
             <Link
-              href={`/surat-pengantar/${id}`}
+              href={`/surat-pengantar/${idSurat}`}
               className="rounded-lg border border-gray-300 px-5 py-3 text-sm"
             >
               Batal

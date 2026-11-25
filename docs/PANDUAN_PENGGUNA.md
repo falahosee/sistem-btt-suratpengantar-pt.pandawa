@@ -126,14 +126,28 @@ Admin dapat memulihkan dokumen arsip menjadi aktif kembali.
 
 Dokumen yang berstatus arsip dilindungi dari perubahan isi melalui mekanisme database.
 
+
 ### 9. Aturan Hak Akses
 
-- Penghapusan seluruh dokumen Surat Pengantar dibatasi untuk admin.
-- Admin dan staff diizinkan mengelola rincian kiriman pada Surat Pengantar aktif.
-- Penghapusan rincian Surat Pengantar aktif dibatasi melalui kebijakan Row Level Security (RLS).
-- Rincian Surat Pengantar yang telah diarsipkan dilindungi melalui trigger database.
+Sistem menerapkan pembatasan hak akses berdasarkan peran pengguna, yaitu admin dan staff, untuk menjaga keamanan serta integritas data BTT dan Surat Pengantar.
 
-**Catatan pengujian:** Izin staff untuk menghapus rincian yang sudah tersimpan setelah pembaruan RLS masih memerlukan verifikasi langsung melalui aplikasi.
+- Penghapusan seluruh dokumen Surat Pengantar hanya dapat dilakukan oleh admin.
+- Admin dan staff dapat menambah, melihat, serta mengedit rincian kiriman pada Surat Pengantar yang masih aktif.
+- Admin dan staff dapat menghapus rincian kiriman yang sudah tersimpan selama Surat Pengantar masih berstatus aktif.
+- Penghapusan rincian Surat Pengantar aktif diatur melalui kebijakan Row Level Security (RLS) pada database Supabase.
+- Rincian Surat Pengantar yang telah diarsipkan dilindungi melalui trigger database sehingga tidak dapat ditambah, diubah, atau dihapus.
+- Pengarsipan dan pemulihan dokumen hanya dapat dilakukan oleh admin.
+
+**Hasil Pengujian:**
+
+Pada 25 November 2026, dilakukan pengujian penghapusan rincian kiriman menggunakan akun staff1 pada Surat Pengantar nomor 00006.
+
+Pengujian dilakukan dengan menambahkan rincian sementara bernomor STT UJI-DELETE-01, menyimpannya ke database, kemudian menghapus rincian tersebut melalui halaman Edit Surat Pengantar menggunakan akun staff1.
+
+Hasil pengujian menunjukkan bahwa penghapusan berhasil dilakukan. Verifikasi melalui Supabase membuktikan bahwa rincian pengujian telah terhapus, sedangkan rincian asli dengan STT 00003 (ID detail 31) tetap tersimpan tanpa perubahan.
+
+Dengan demikian, fungsi penghapusan rincian Surat Pengantar aktif oleh staff dinyatakan berhasil berdasarkan pengujian yang telah dilakukan.
+
 
 ### 10. Catatan Penggunaan
 

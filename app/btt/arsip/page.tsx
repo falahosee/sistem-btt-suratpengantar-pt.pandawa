@@ -87,7 +87,7 @@ export default function ArsipBttPage() {
             </p>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-gray-200">
-              <table className="w-full min-w-[640px] text-left text-sm">
+              <table className="w-full min-w-160 text-left text-sm">
                 <thead className="bg-slate-100 text-gray-700">
                   <tr>
                     <th scope="col" className="px-4 py-3">Nomor BTT</th>

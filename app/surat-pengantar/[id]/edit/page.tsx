@@ -30,9 +30,11 @@ const inputStyle =
 export default function EditSuratPengantarPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+
   const idSurat = Number(id);
   const idBaru = useRef(-1);
   const idDetailAwal = useRef<number[]>([]);
+  const sedangMenyimpan = useRef(false);
 
   const [form, setForm] = useState<FormSurat>({
     nomor_surat: "",
@@ -60,79 +62,102 @@ export default function EditSuratPengantarPage() {
         return;
       }
 
-      const { data: surat, error: errorSurat } = await supabase
-        .from("surat_pengantar")
-        .select(
-          "id, nomor_surat, dari, tujuan, tanggal_pengiriman, petugas, is_archived"
-        )
-        .eq("id", idSurat)
-        .single();
+      try {
+        const { data: surat, error: errorSurat } =
+          await supabase
+            .from("surat_pengantar")
+            .select(
+              "id, nomor_surat, dari, tujuan, tanggal_pengiriman, petugas, is_archived"
+            )
+            .eq("id", idSurat)
+            .single();
 
-      if (!aktif) return;
+        if (!aktif) return;
 
-      if (errorSurat || !surat) {
+        if (errorSurat || !surat) {
+          setError(
+            errorSurat?.message ||
+              "Surat Pengantar tidak ditemukan."
+          );
+          setLoading(false);
+          return;
+        }
+
+        if (surat.is_archived) {
+          setError(
+            "Surat Pengantar yang diarsipkan tidak dapat diedit. Pulihkan terlebih dahulu."
+          );
+          setLoading(false);
+          return;
+        }
+
+        const { data: detail, error: errorDetail } =
+          await supabase
+            .from("surat_pengantar_detail")
+            .select(
+              "id, stt, penerima, pengirim, jumlah_colli, berat, biaya, keterangan"
+            )
+            .eq("surat_pengantar_id", idSurat)
+            .order("id", { ascending: true });
+
+        if (!aktif) return;
+
+        if (errorDetail) {
+          setError(errorDetail.message);
+          setLoading(false);
+          return;
+        }
+
+        setForm({
+          nomor_surat: surat.nomor_surat || "",
+          dari: surat.dari || "",
+          tujuan: surat.tujuan || "",
+          tanggal_pengiriman:
+            surat.tanggal_pengiriman || "",
+          petugas: surat.petugas || "",
+        });
+
+        const rincian: Kiriman[] = (detail ?? []).map(
+          (item) => ({
+            id: item.id,
+            stt: item.stt || "",
+            penerima: item.penerima || "",
+            pengirim: item.pengirim || "",
+            jumlah_colli:
+              item.jumlah_colli == null
+                ? ""
+                : String(item.jumlah_colli),
+            berat:
+              item.berat == null
+                ? ""
+                : String(item.berat),
+            biaya:
+              item.biaya == null
+                ? ""
+                : String(item.biaya),
+            keterangan: item.keterangan || "",
+          })
+        );
+
+        // Simpan ID detail saat halaman pertama kali dibuka.
+        // RPC menggunakan daftar ini untuk mendeteksi
+        // perubahan daftar rincian di database.
+        idDetailAwal.current = rincian.map(
+          (item) => item.id
+        );
+
+        setDaftarKiriman(rincian);
+        setLoading(false);
+      } catch (err) {
+        if (!aktif) return;
+
         setError(
-          errorSurat?.message || "Surat Pengantar tidak ditemukan."
+          err instanceof Error
+            ? err.message
+            : "Gagal memuat Surat Pengantar."
         );
         setLoading(false);
-        return;
       }
-
-      if (surat.is_archived) {
-        setError(
-          "Surat Pengantar yang diarsipkan tidak dapat diedit. Pulihkan terlebih dahulu."
-        );
-        setLoading(false);
-        return;
-      }
-
-      const { data: detail, error: errorDetail } = await supabase
-        .from("surat_pengantar_detail")
-        .select(
-          "id, stt, penerima, pengirim, jumlah_colli, berat, biaya, keterangan"
-        )
-        .eq("surat_pengantar_id", idSurat)
-        .order("id", { ascending: true });
-
-      if (!aktif) return;
-
-      if (errorDetail) {
-        setError(errorDetail.message);
-        setLoading(false);
-        return;
-      }
-
-      setForm({
-        nomor_surat: surat.nomor_surat || "",
-        dari: surat.dari || "",
-        tujuan: surat.tujuan || "",
-        tanggal_pengiriman: surat.tanggal_pengiriman || "",
-        petugas: surat.petugas || "",
-      });
-
-      const rincian = (detail ?? []).map((item) => ({
-        id: item.id,
-        stt: item.stt || "",
-        penerima: item.penerima || "",
-        pengirim: item.pengirim || "",
-        jumlah_colli:
-          item.jumlah_colli == null
-            ? ""
-            : String(item.jumlah_colli),
-        berat:
-          item.berat == null
-            ? ""
-            : String(item.berat),
-        biaya:
-          item.biaya == null
-            ? ""
-            : String(item.biaya),
-        keterangan: item.keterangan || "",
-      }));
-
-      idDetailAwal.current = rincian.map((item) => item.id);
-      setDaftarKiriman(rincian);
-      setLoading(false);
     }
 
     void ambilData();
@@ -172,6 +197,8 @@ export default function EditSuratPengantarPage() {
   }
 
   function tambahKiriman() {
+    if (sedangMenyimpan.current) return;
+
     setError("");
 
     const idSementara = idBaru.current--;
@@ -192,6 +219,8 @@ export default function EditSuratPengantarPage() {
   }
 
   function hapusKiriman(idKiriman: number) {
+    if (sedangMenyimpan.current) return;
+
     if (daftarKiriman.length <= 1) {
       setError("Minimal harus ada satu kiriman.");
       return;
@@ -207,12 +236,12 @@ export default function EditSuratPengantarPage() {
   }
 
   function validasi(): string | null {
-    if (daftarKiriman.length === 0) {
-      return "Minimal harus ada satu kiriman.";
-    }
-
     if (!form.tanggal_pengiriman) {
       return "Tanggal Pengiriman wajib diisi.";
+    }
+
+    if (daftarKiriman.length === 0) {
+      return "Minimal harus ada satu kiriman.";
     }
 
     const sttTerdaftar = new Set<string>();
@@ -223,7 +252,10 @@ export default function EditSuratPengantarPage() {
         !item.penerima.trim() ||
         !item.pengirim.trim()
       ) {
-        return "STT, penerima, dan pengirim harus diisi pada setiap kiriman.";
+        return (
+          "STT, penerima, dan pengirim harus diisi " +
+          "pada setiap kiriman."
+        );
       }
 
       const jumlah = Number(item.jumlah_colli);
@@ -231,41 +263,51 @@ export default function EditSuratPengantarPage() {
       if (
         !item.jumlah_colli.trim() ||
         !Number.isSafeInteger(jumlah) ||
-        jumlah <= 0
+        jumlah <= 0 ||
+        jumlah > 2147483647
       ) {
-        return "Jumlah colli harus berupa bilangan bulat lebih dari nol.";
+        return (
+          "Jumlah colli harus berupa bilangan bulat " +
+          "lebih dari nol."
+        );
       }
 
-      // Validasi STT duplikat.
-      const sttNormal = item.stt.trim().toUpperCase();
+      const sttNormal =
+        item.stt.trim().toUpperCase();
 
       if (sttTerdaftar.has(sttNormal)) {
         return (
-          `STT "${item.stt.trim()}" digunakan lebih dari satu kali. ` +
-          "Setiap kiriman harus memiliki STT berbeda."
+          `STT "${item.stt.trim()}" digunakan lebih ` +
+          "dari satu kali. Setiap kiriman harus " +
+          "memiliki STT berbeda."
         );
       }
 
       sttTerdaftar.add(sttNormal);
 
       if (
-        item.berat.trim() &&
+        item.berat.trim() !== "" &&
         (
           !Number.isFinite(Number(item.berat)) ||
           Number(item.berat) < 0
         )
       ) {
-        return "Berat harus berupa angka yang tidak negatif.";
+        return (
+          "Berat harus berupa angka yang tidak negatif."
+        );
       }
 
       if (
-        item.biaya.trim() &&
+        item.biaya.trim() !== "" &&
         (
           !Number.isSafeInteger(Number(item.biaya)) ||
           Number(item.biaya) < 0
         )
       ) {
-        return "Biaya harus berupa bilangan bulat yang tidak negatif.";
+        return (
+          "Biaya harus berupa bilangan bulat " +
+          "yang tidak negatif."
+        );
       }
     }
 
@@ -277,178 +319,104 @@ export default function EditSuratPengantarPage() {
   ) {
     e.preventDefault();
 
-    if (menyimpan) return;
+    if (sedangMenyimpan.current) return;
 
     const pesan = validasi();
 
     if (pesan) {
       setError(pesan);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
       return;
     }
 
+    sedangMenyimpan.current = true;
     setMenyimpan(true);
     setError("");
 
     try {
-      // Perbarui informasi utama Surat Pengantar.
-      const {
-        data: suratDiperbarui,
-        error: errorSurat,
-      } = await supabase
-        .from("surat_pengantar")
-        .update({
-          dari: form.dari.trim() || null,
-          tujuan: form.tujuan.trim() || null,
-          tanggal_pengiriman:
-            form.tanggal_pengiriman,
-          petugas: form.petugas.trim() || null,
+      // Data rincian dikirim sebagai JSON.
+      // ID positif = rincian yang sudah ada.
+      // ID negatif = rincian baru.
+      const detailUntukRPC = daftarKiriman.map(
+        (item) => ({
+          id: item.id,
+          stt: item.stt.trim(),
+          penerima: item.penerima.trim(),
+          pengirim: item.pengirim.trim(),
+          jumlah_colli: item.jumlah_colli.trim(),
+          berat:
+            item.berat.trim() === ""
+              ? null
+              : item.berat.trim(),
+          biaya:
+            item.biaya.trim() === ""
+              ? null
+              : item.biaya.trim(),
+          keterangan:
+            item.keterangan.trim() || null,
         })
-        .eq("id", idSurat)
-        .eq("is_archived", false)
-        .select("id");
+      );
 
-      if (errorSurat) throw errorSurat;
+      // Satu pemanggilan RPC menggantikan
+      // update, insert, dan delete terpisah.
+      const { data, error: errorRPC } =
+        await supabase.rpc(
+          "update_surat_pengantar_atomic",
+          {
+            p_surat_id: idSurat,
+            p_dari: form.dari.trim() || null,
+            p_tujuan: form.tujuan.trim() || null,
+            p_tanggal:
+              form.tanggal_pengiriman,
+            p_petugas:
+              form.petugas.trim() || null,
+            p_details: detailUntukRPC,
+            p_expected_detail_ids:
+              idDetailAwal.current,
+          }
+        );
 
-      if (suratDiperbarui?.length !== 1) {
+      if (errorRPC) {
+        throw new Error(errorRPC.message);
+      }
+
+      if (
+        typeof data !== "number" ||
+        data !== daftarKiriman.length
+      ) {
         throw new Error(
-          "Surat tidak berhasil diperbarui. Periksa izin akses dan status arsip."
+          "Hasil penyimpanan tidak sesuai. " +
+          "Periksa data sebelum mencoba kembali."
         );
       }
 
-      // Perbarui detail lama berdasarkan ID.
-      // Tidak lagi menghapus semua detail lama.
-      for (const item of daftarKiriman.filter(
-        (kiriman) => kiriman.id > 0
-      )) {
-        const dataDetail = {
-          stt: item.stt.trim(),
-          penerima: item.penerima.trim(),
-          pengirim: item.pengirim.trim(),
-          jumlah_colli: Number(item.jumlah_colli),
-          berat:
-            item.berat.trim() === ""
-              ? null
-              : Number(item.berat),
-          biaya:
-            item.biaya.trim() === ""
-              ? null
-              : Number(item.biaya),
-          keterangan:
-            item.keterangan.trim() || null,
-        };
-
-        const {
-          data,
-          error: errorUpdate,
-        } = await supabase
-          .from("surat_pengantar_detail")
-          .update(dataDetail)
-          .eq("id", item.id)
-          .eq("surat_pengantar_id", idSurat)
-          .select("id");
-
-        if (errorUpdate) throw errorUpdate;
-
-        if (data?.length !== 1) {
-          throw new Error(
-            `Detail ID ${item.id} gagal diperbarui. ` +
-            "Periksa kebijakan akses Supabase."
-          );
-        }
-      }
-
-      // Tambahkan hanya detail yang baru dibuat.
-      const kirimanBaru = daftarKiriman.filter(
-        (item) => item.id < 0
+      alert(
+        "Surat Pengantar berhasil diperbarui!"
       );
 
-      if (kirimanBaru.length > 0) {
-        const dataBaru = kirimanBaru.map((item) => ({
-          surat_pengantar_id: idSurat,
-          stt: item.stt.trim(),
-          penerima: item.penerima.trim(),
-          pengirim: item.pengirim.trim(),
-          jumlah_colli: Number(item.jumlah_colli),
-          berat:
-            item.berat.trim() === ""
-              ? null
-              : Number(item.berat),
-          biaya:
-            item.biaya.trim() === ""
-              ? null
-              : Number(item.biaya),
-          keterangan:
-            item.keterangan.trim() || null,
-        }));
-
-        const {
-          data,
-          error: errorInsert,
-        } = await supabase
-          .from("surat_pengantar_detail")
-          .insert(dataBaru)
-          .select("id");
-
-        if (errorInsert) throw errorInsert;
-
-        if (data?.length !== dataBaru.length) {
-          throw new Error(
-            "Sebagian detail baru tidak dapat diverifikasi. " +
-            "Periksa database sebelum mengulang penyimpanan."
-          );
-        }
-      }
-
-      // Hapus hanya kiriman yang dihapus dari form.
-      const idSaatIni = new Set(
-        daftarKiriman
-          .filter((item) => item.id > 0)
-          .map((item) => item.id)
+      router.push(
+        `/surat-pengantar/${idSurat}`
       );
-
-      const idDihapus = idDetailAwal.current.filter(
-        (detailId) => !idSaatIni.has(detailId)
-      );
-
-      if (idDihapus.length > 0) {
-        const {
-          data,
-          error: errorHapus,
-        } = await supabase
-          .from("surat_pengantar_detail")
-          .delete()
-          .eq("surat_pengantar_id", idSurat)
-          .in("id", idDihapus)
-          .select("id");
-
-        if (errorHapus) throw errorHapus;
-
-        if (data?.length !== idDihapus.length) {
-          throw new Error(
-            "Sebagian detail tidak terhapus. " +
-            "Periksa izin DELETE pada Supabase."
-          );
-        }
-      }
-
-      alert("Surat Pengantar berhasil diperbarui!");
-
-      router.push(`/surat-pengantar/${idSurat}`);
       router.refresh();
     } catch (err) {
       setError(
-        "Proses pembaruan belum selesai: " +
-        (
-          err instanceof Error
-            ? err.message
-            : String(err)
-        ) +
-        ". Jangan tekan Simpan berulang kali; periksa data terlebih dahulu."
+        "Gagal memperbarui Surat Pengantar: " +
+          (
+            err instanceof Error
+              ? err.message
+              : String(err)
+          )
       );
 
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
     } finally {
+      sedangMenyimpan.current = false;
       setMenyimpan(false);
     }
   }
@@ -456,15 +424,21 @@ export default function EditSuratPengantarPage() {
   if (loading) {
     return (
       <main className="min-h-screen bg-slate-100 p-8">
-        Memuat data Surat Pengantar...
+        <p>Memuat data Surat Pengantar...</p>
       </main>
     );
   }
 
-  if (!daftarKiriman.length && error) {
+  if (error && daftarKiriman.length === 0) {
     return (
-      <main className="min-h-screen bg-slate-100 p-8 text-red-600">
-        {error}
+      <main className="min-h-screen bg-slate-100 p-8">
+        <p className="text-red-600">{error}</p>
+        <Link
+          href="/surat-pengantar"
+          className="mt-4 inline-block text-blue-700 underline"
+        >
+          Kembali ke daftar Surat Pengantar
+        </Link>
       </main>
     );
   }
@@ -548,7 +522,9 @@ export default function EditSuratPengantarPage() {
                   name={name}
                   value={form[name]}
                   onChange={ubahForm}
-                  required={name === "tanggal_pengiriman"}
+                  required={
+                    name === "tanggal_pengiriman"
+                  }
                   className={inputStyle}
                 />
               </div>
@@ -560,6 +536,7 @@ export default function EditSuratPengantarPage() {
               <h3 className="text-lg font-semibold">
                 Daftar Kiriman
               </h3>
+
               <button
                 type="button"
                 onClick={tambahKiriman}
@@ -571,103 +548,141 @@ export default function EditSuratPengantarPage() {
             </div>
 
             <div className="space-y-4">
-              {daftarKiriman.map((item, index) => (
-                <div
-                  key={item.id}
-                  className="rounded-lg border border-gray-200 bg-slate-50 p-4"
-                >
-                  <div className="mb-4 flex items-center justify-between">
-                    <h4 className="font-semibold">
-                      Kiriman {index + 1}
-                    </h4>
-                    <button
-                      type="button"
-                      onClick={() => hapusKiriman(item.id)}
-                      disabled={
-                        menyimpan ||
-                        daftarKiriman.length <= 1
-                      }
-                      className="text-sm text-red-600 disabled:opacity-40"
-                    >
-                      Hapus
-                    </button>
-                  </div>
+              {daftarKiriman.map(
+                (item, index) => (
+                  <div
+                    key={item.id}
+                    className="rounded-lg border border-gray-200 bg-slate-50 p-4"
+                  >
+                    <div className="mb-4 flex items-center justify-between">
+                      <h4 className="font-semibold">
+                        Kiriman {index + 1}
+                      </h4>
 
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    {(
-                      [
-                        ["stt", "STT *", "text", true],
-                        ["penerima", "Penerima *", "text", true],
-                        ["pengirim", "Pengirim *", "text", true],
+                      <button
+                        type="button"
+                        onClick={() =>
+                          hapusKiriman(item.id)
+                        }
+                        disabled={
+                          menyimpan ||
+                          daftarKiriman.length <= 1
+                        }
+                        className="text-sm text-red-600 disabled:opacity-40"
+                      >
+                        Hapus
+                      </button>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      {(
                         [
-                          "jumlah_colli",
-                          "Jumlah Colli *",
-                          "number",
-                          true,
-                        ],
-                        ["berat", "Berat", "number", false],
-                        ["biaya", "Biaya", "number", false],
-                        [
-                          "keterangan",
-                          "Keterangan",
-                          "text",
-                          false,
-                        ],
-                      ] as const
-                    ).map(
-                      ([field, label, type, required]) => (
-                        <div
-                          key={field}
-                          className={
-                            field === "keterangan"
-                              ? "md:col-span-2"
-                              : ""
-                          }
-                        >
-                          <label
-                            htmlFor={`${item.id}-${field}`}
-                            className="block text-sm font-medium text-gray-700"
+                          [
+                            "stt",
+                            "STT *",
+                            "text",
+                            true,
+                          ],
+                          [
+                            "penerima",
+                            "Penerima *",
+                            "text",
+                            true,
+                          ],
+                          [
+                            "pengirim",
+                            "Pengirim *",
+                            "text",
+                            true,
+                          ],
+                          [
+                            "jumlah_colli",
+                            "Jumlah Colli *",
+                            "number",
+                            true,
+                          ],
+                          [
+                            "berat",
+                            "Berat",
+                            "number",
+                            false,
+                          ],
+                          [
+                            "biaya",
+                            "Biaya",
+                            "number",
+                            false,
+                          ],
+                          [
+                            "keterangan",
+                            "Keterangan",
+                            "text",
+                            false,
+                          ],
+                        ] as const
+                      ).map(
+                        ([
+                          field,
+                          label,
+                          type,
+                          required,
+                        ]) => (
+                          <div
+                            key={field}
+                            className={
+                              field === "keterangan"
+                                ? "md:col-span-2"
+                                : ""
+                            }
                           >
-                            {label}
-                          </label>
-                          <input
-                            id={`${item.id}-${field}`}
-                            type={type}
-                            value={item[field]}
-                            onChange={(e) =>
-                              ubahKiriman(
-                                item.id,
-                                field,
-                                e.target.value
-                              )
-                            }
-                            placeholder={label.replace(
-                              " *",
-                              ""
-                            )}
-                            required={required}
-                            min={
-                              field === "jumlah_colli"
-                                ? "1"
-                                : type === "number"
-                                  ? "0"
-                                  : undefined
-                            }
-                            step={
-                              field === "berat"
-                                ? "any"
-                                : type === "number"
+                            <label
+                              htmlFor={`${item.id}-${field}`}
+                              className="block text-sm font-medium text-gray-700"
+                            >
+                              {label}
+                            </label>
+
+                            <input
+                              id={`${item.id}-${field}`}
+                              type={type}
+                              value={item[field]}
+                              onChange={(e) =>
+                                ubahKiriman(
+                                  item.id,
+                                  field,
+                                  e.target.value
+                                )
+                              }
+                              placeholder={label.replace(
+                                " *",
+                                ""
+                              )}
+                              required={required}
+                              min={
+                                field ===
+                                "jumlah_colli"
                                   ? "1"
-                                  : undefined
-                            }
-                            className={inputStyle}
-                          />
-                        </div>
-                      )
-                    )}
+                                  : type === "number"
+                                    ? "0"
+                                    : undefined
+                              }
+                              step={
+                                field === "berat"
+                                  ? "any"
+                                  : type === "number"
+                                    ? "1"
+                                    : undefined
+                              }
+                              disabled={menyimpan}
+                              className={inputStyle}
+                            />
+                          </div>
+                        )
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              )}
             </div>
 
             <p className="mt-4 text-sm text-gray-500">

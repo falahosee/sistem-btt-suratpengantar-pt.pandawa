@@ -158,11 +158,11 @@ export default function SuratPengantarPage() {
         {/* HEADER */}
         <header className="mb-6 rounded-xl bg-[#183B63] p-6 text-white shadow">
           <h1 className="text-xl font-bold">
-            PT Pandawa Jaya Transindo
+            Pengelolaan Surat Pengantar
           </h1>
 
           <p className="mt-1 text-sm text-blue-100">
-            Sistem Administrasi Pengiriman Barang
+            Kelola rekap pengiriman mingguan dan rincian kiriman secara terstruktur.
           </p>
         </header>
 

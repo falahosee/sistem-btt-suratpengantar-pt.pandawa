@@ -270,9 +270,9 @@ function DetailSuratPengantar({ id }: { id: string }) {
     <main className="min-h-screen bg-slate-100 px-4 py-8 text-gray-900">
       <div className="mx-auto max-w-6xl">
         <header className="mb-6 rounded-xl bg-[#183B63] p-6 text-white shadow">
-          <h1 className="text-xl font-bold">PT Pandawa Jaya Transindo</h1>
+          <h1 className="text-xl font-bold">Informasi Surat Pengantar</h1>
           <p className="mt-1 text-sm text-blue-100">
-            Sistem Administrasi Pengiriman Barang
+            Tinjau informasi dokumen dan rincian kiriman yang tercatat
           </p>
         </header>
 

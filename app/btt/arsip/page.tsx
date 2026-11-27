@@ -56,9 +56,9 @@ export default function ArsipBttPage() {
     <main className="min-h-screen bg-slate-100 px-4 py-8 text-gray-900">
       <div className="mx-auto max-w-6xl">
         <header className="mb-6 rounded-xl bg-[#183B63] p-6 text-white shadow">
-          <p className="text-xl font-bold">PT Pandawa Jaya Transindo</p>
+          <p className="text-xl font-bold">Arsip Bukti Tanda Terima</p>
           <p className="mt-1 text-sm text-blue-100">
-            Sistem Administrasi Pengiriman Barang
+            Telusuri dan kelola dokumen BTT yang telah diarsipkan
           </p>
         </header>
 

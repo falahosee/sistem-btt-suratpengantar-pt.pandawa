@@ -243,8 +243,8 @@ export default function DetailBttPage() {
     <main className="min-h-screen bg-slate-100 px-4 py-8 text-gray-900">
       <div className="mx-auto max-w-3xl">
         <header className="mb-6 rounded-xl bg-[#183B63] p-6 text-white shadow">
-          <h1 className="text-xl font-bold">PT Pandawa Jaya Transindo</h1>
-          <p className="mt-1 text-sm text-blue-100">Sistem Administrasi Pengiriman Barang</p>
+          <h1 className="text-xl font-bold">Informasi Bukti Tanda Terima</h1>
+          <p className="mt-1 text-sm text-blue-100">Tinjau informasi lengkap dan status dokumen BTT</p>
         </header>
 
         <section className="rounded-xl bg-white p-6 shadow-sm sm:p-8">

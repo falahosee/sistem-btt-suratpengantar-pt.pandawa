@@ -263,10 +263,10 @@ export default function TambahSuratPengantarPage() {
       <div className="mx-auto max-w-7xl">
         <header className="mb-6 rounded-xl bg-[#183B63] p-6 text-white shadow">
           <h1 className="text-xl font-bold">
-            PT Pandawa Jaya Transindo
+            Pengisian Surat Pengantar
           </h1>
           <p className="mt-1 text-sm text-blue-100">
-            Sistem Administrasi Pengiriman Barang
+            Susun rekap pengiriman mingguan beserta rincian kiriman
           </p>
         </header>
 

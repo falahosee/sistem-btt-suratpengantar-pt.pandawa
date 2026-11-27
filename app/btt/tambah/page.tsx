@@ -74,11 +74,11 @@ export default function TambahBttPage() {
 
         <header className="mb-6 rounded-xl bg-[#183B63] p-6 text-white shadow">
           <h1 className="text-xl font-bold">
-            PT Pandawa Jaya Transindo
+            Pengisian Bukti Tanda Terima
           </h1>
 
           <p className="mt-1 text-sm text-blue-100">
-            Sistem Administrasi Pengiriman Barang
+            Catat informasi pengiriman dan buat dokumen BTT baru
           </p>
         </header>
 
